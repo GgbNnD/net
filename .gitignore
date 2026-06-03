@@ -1,1 +1,18 @@
-*.pyc
+# Build output
+build/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Binary executables
+*.exe
+*.out
+P2PFileTransfer
