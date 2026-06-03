@@ -104,6 +104,13 @@ bool is_would_block(int error_code);
 bool set_nonblocking(SOCKET_FD sock);
 
 /**
+ * @brief 设置Socket为阻塞模式
+ * @param sock socket描述符
+ * @return 是否设置成功
+ */
+bool set_blocking(SOCKET_FD sock);
+
+/**
  * @brief 设置Socket地址重用选项
  * @param sock socket描述符
  * @return 是否设置成功

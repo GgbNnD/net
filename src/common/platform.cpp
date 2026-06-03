@@ -85,7 +85,9 @@ bool is_would_block(int error_code) {
 #ifdef _WIN32
     return error_code == WSAEWOULDBLOCK;
 #else
-    return error_code == EWOULDBLOCK || error_code == EAGAIN;
+    // EINPROGRESS: 非阻塞 connect() 正在建立连接 (正常状态!)
+    // EWOULDBLOCK / EAGAIN: 非阻塞 read/write 时缓冲区无数据/已满
+    return error_code == EWOULDBLOCK || error_code == EAGAIN || error_code == EINPROGRESS;
 #endif
 }
 
@@ -100,6 +102,20 @@ bool set_nonblocking(SOCKET_FD sock) {
     int flags = fcntl(sock, F_GETFL, 0);
     if (flags == -1) return false;
     return fcntl(sock, F_SETFL, flags | O_NONBLOCK) == 0;
+#endif
+}
+
+// ----------------------------------------------------------
+// 设置Socket为阻塞模式
+// ----------------------------------------------------------
+bool set_blocking(SOCKET_FD sock) {
+#ifdef _WIN32
+    u_long mode = 0;
+    return ioctlsocket(sock, FIONBIO, &mode) == 0;
+#else
+    int flags = fcntl(sock, F_GETFL, 0);
+    if (flags == -1) return false;
+    return fcntl(sock, F_SETFL, flags & ~O_NONBLOCK) == 0;
 #endif
 }
 
