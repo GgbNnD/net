@@ -21,6 +21,7 @@ src/common/            → Shared types, platform socket wrapper, utils, JSON pr
 src/discovery/         → UDP multicast device discovery (port 8888)
 src/signaling/         → TCP signaling channel (port 8889, short-connection)
 src/transfer/          → TCP file transfer (port 8890, long-connection, sliding window)
+src/web/               → Minimal HTTP server + REST API + static frontend (port 8891)
 lib/nlohmann/json.hpp  → Vendored JSON library (v3.11.3)
 ```
 
@@ -90,6 +91,18 @@ Both `DeviceDiscovery::recv_loop()` and `DeviceManager::update_device()` check `
 
 ### Callback-safe unlocking
 `DeviceManager::update_device()` and `remove_device()` use `std::unique_lock` so they can `lock.unlock()` before invoking callbacks, preventing deadlocks from re-entrant access.
+
+### SO_RCVTIMEO must be set BEFORE `connect()`
+`TransferSender::send_file()` sets `SO_RCVTIMEO` (500ms) on the socket *before* `connect()`. Setting it after the connection is established has no effect on some Linux kernels. The sender uses this for blocking `recv()` on ACKs instead of `select()` + non-blocking socket, which avoids select-to-recv race conditions on localhost.
+
+### Sender ACK timeout for small files
+The sender polls for ACK after sending all chunks. For files with few chunks (≤8), the receiver may not send intermediate ACKs, so the sender waits up to `no_ack_cycles > 5` iterations × ~2s (SO_RCVTIMEO + 50ms sleep) ≈ 10s before force-completing. A 50ms `sleep_for` is inserted between chunk sends and ACK reads to give the receiver time to process.
+
+### Web frontend static files
+The HTTP server serves files from `src/web/static/` (relative to working directory). The `index.html` expects `style.css` and `app.js` in the same directory. CORS headers are set to `*` for browser-based API access. The server is minimal — no HTTPS, no compression, no HTTP/2.
+
+### TransferManager bridges services
+`TransferManager` owns the task map (thread-safe). `TransferReceiver` calls `mark_complete()` on finish. The REST API reads tasks from `TransferManager` for the web UI. New transfer tasks should be created via `TransferManager::add_task()` so they appear in the web transfer list.
 
 ## Git Conventions
 - Branch: `p2p`
