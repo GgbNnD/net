@@ -1,0 +1,13 @@
+\contentsline {section}{\numberline {1}引言}{1}{section.1}%
+\contentsline {section}{\numberline {2}设计启发：从 CAN 总线到 CSMA/DCR}{1}{section.2}%
+\contentsline {section}{\numberline {3}协议设计与流程分析}{2}{section.3}%
+\contentsline {subsection}{\numberline {3.1}协议工作流程阐述}{2}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}流程图对比}{2}{subsection.3.2}%
+\contentsline {section}{\numberline {4}理论计算与可行性分析}{3}{section.4}%
+\contentsline {section}{\numberline {5}可视化仿真分析}{4}{section.5}%
+\contentsline {section}{\numberline {6}典型应用场景分析}{4}{section.6}%
+\contentsline {subsection}{\numberline {6.1}智能电网与变电站自动化（应对报警风暴）}{5}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}工业控制系统与机器人阵列（保障硬实时性）}{5}{subsection.6.2}%
+\contentsline {subsection}{\numberline {6.3}车载内部高速总线（替代传统CAN与车载以太网）}{5}{subsection.6.3}%
+\contentsline {subsection}{\numberline {6.4}战术多节点无线电与应急通信（防信道瘫痪）}{5}{subsection.6.4}%
+\contentsline {section}{\numberline {7}结论}{6}{section.7}%

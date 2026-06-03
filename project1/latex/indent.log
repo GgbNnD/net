@@ -1,0 +1,33 @@
+INFO:  latexindent version 3.15, 2022-01-21, a script to indent .tex files
+       latexindent lives here: /usr/share/texlive/texmf-dist/scripts/latexindent/
+       Tue Apr 14 11:31:29 2026
+       Filename: /home/cells/school/net/project1/latex/report.tex
+INFO:  Processing switches:
+       -s|--silent: Silent mode active (you have used either -s or --silent)
+       -w|--overwrite: Overwrite mode active, will make a back up of /home/cells/school/net/project1/latex/report.tex first
+INFO:  Directory for backup files and indent.log: /home/cells/school/net/project1/latex
+INFO:  YAML settings read: defaultSettings.yaml
+       Reading defaultSettings.yaml from /usr/share/texlive/texmf-dist/scripts/latexindent/defaultSettings.yaml
+INFO:  YAML settings read: indentconfig.yaml or .indentconfig.yaml
+       Home directory is /home/cells (didn't find either indentconfig.yaml or .indentconfig.yaml)
+       To specify user settings you would put indentconfig.yaml here: /home/cells/indentconfig.yaml
+       Alternatively, you can use the hidden file .indentconfig.yaml as: /home/cells/.indentconfig.yaml
+INFO:  Backup procedure (-w flag active):
+       /home/cells/school/net/project1/latex/report.bak0 already exists, incrementing by 1... (see maxNumberOfBackUps and onlyOneBackUp)
+       /home/cells/school/net/project1/latex/report.bak1 already exists, incrementing by 1... (see maxNumberOfBackUps and onlyOneBackUp)
+       /home/cells/school/net/project1/latex/report.bak2 already exists, incrementing by 1... (see maxNumberOfBackUps and onlyOneBackUp)
+       /home/cells/school/net/project1/latex/report.bak3 already exists, incrementing by 1... (see maxNumberOfBackUps and onlyOneBackUp)
+       /home/cells/school/net/project1/latex/report.bak4 already exists, incrementing by 1... (see maxNumberOfBackUps and onlyOneBackUp)
+       /home/cells/school/net/project1/latex/report.bak5 already exists, incrementing by 1... (see maxNumberOfBackUps and onlyOneBackUp)
+       copying /home/cells/school/net/project1/latex/report.tex to /home/cells/school/net/project1/latex/report.bak6
+       Backup file: /home/cells/school/net/project1/latex/report.bak6
+       /home/cells/school/net/project1/latex/report.tex will be overwritten after indentation
+INFO:  Phase 1: searching for objects
+INFO:  Phase 2: finding surrounding indentation
+INFO:  Phase 3: indenting objects
+INFO:  Phase 4: final indentation check
+INFO:  Output routine:
+       Overwriting file /home/cells/school/net/project1/latex/report.tex
+       --------------
+INFO:  Please direct all communication/issues to:
+        https://github.com/cmhughes/latexindent.pl

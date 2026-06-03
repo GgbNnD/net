@@ -87,38 +87,18 @@
 				姓\hspace{12pt}名 & \underline{\makebox[220pt]{\kaishu 黄鹤翔}}             \\
 				学\hspace{12pt}号 & \underline{\makebox[220pt]{3230106231}}                 \\
 				院\hspace{12pt}系 & \underline{\makebox[220pt]{\kaishu 信息与电子工程学院}} \\
-				指导老师          & \underline{\makebox[220pt]{\kaishu 王勇}}               \\
+				指导老师          & \underline{\makebox[220pt]{\kaishu 赵明敏}}             \\
 			\end{tabular}
 		}
 	\end{center}
 \end{titlepage}
-
-\newpage
-\tableofcontents
-\newpage
 
 \pagenumbering{arabic}
 
 \section{引言}
 在传统的有线广播通信网络中，CSMA/CD（带有冲突检测的载波侦听多路访问）协议被广泛使用。然而，当网络负载增加时，CSMA/CD 会因频繁冲突和指数退避导致信道利用率剧烈下降，甚至引发“网络崩溃”。为了克服这一缺陷，本文提出了一种基于确定性冲突解决的新型协议——CSMA/DCR（Carrier Sense Multiple Access with Deterministic Collision Resolution）。该协议在低负载下保持竞争访问以维持低延迟，而在发生冲突时迅速转入确定性轮询模式，从而保障了极高负载下的信道满载吞吐量。
 
-\section{设计启发：从 CAN 总线到 CSMA/DCR}
-本协议的设计灵感直接来源于对工业界广泛使用的 CAN（Controller Area Network）总线与传统以太网（CSMA/CD）底层机制的优劣势思考。
-
-在传统的工业控制与车载网络中，CAN 总线因其基于 ID 的非破坏性逐位仲裁（Bitwise Arbitration）机制，能够保证重要报文的绝对确定性与极低延迟，完美契合“硬实时”需求。然而，逐位仲裁要求极苛刻的物理层同步——全网必须在 1 个比特的时间内达成电平共识。这一物理限制导致 CAN 的通信速率受限（经典 CAN 仅 1Mbps），难以满足现代智能网络（如高清视频流、高频雷达数据）对高带宽的渴求。
-
-另一方面，传统以太网拥有百兆乃至千兆的带宽潜力，但其冲突后的“随机退避”机制会导致高负载下延迟不可控。
-
-\textbf{如何兼得以太网的高带宽与 CAN 总线的确定性？} 这便是提出 CSMA/DCR 协议的核心出发点。我们意识到：
-\begin{enumerate}
-	\item 要突破带宽瓶颈，就必须放弃 CAN 的“逐位仲裁”；
-	\item 要解决延迟不可控，就必须放弃以太网的“随机退避”。
-\end{enumerate}
-
-由此，我们构想出一种融合机制：在常态下，允许像以太网一样发生碰撞以换取无开销的高带宽；但在碰撞发生后，\textbf{借鉴 CAN 总线的 ID 优先级思想，将其从“电平域”转移到“时间域”}。即通过发送 Jam 信号统一叫停全网，随后按节点 ID 分配“微时隙（Micro-slots）”进行轮询。这种“先碰撞，后排队”的策略，使得 CSMA/DCR 既彻底摆脱了逐位仲裁的物理速率限制，又在网络拥塞时获得了与 CAN 总线等效的确定性调度能力。
-
 \section{协议设计与流程分析}
-\subsection{协议工作流程阐述}
 CSMA/DCR 协议的核心机制在于：冲突不仅用于被动地“退避”，更是用于主动地“进入调度期”。具体运行机制可划分为“常规竞争期”和“确定性解决期”，其详细工作流程如下：
 \begin{enumerate}
 	\item \textbf{侦听与发送（常规竞争）：} 节点在发送数据前持续侦听信道。如果信道空闲时间达到规定的帧间间隔（如 DIFS），节点则立即发送数据。若信道忙碌，则保持持续侦听状态。
@@ -130,68 +110,68 @@ CSMA/DCR 协议的核心机制在于：冲突不仅用于被动地“退避”�
 \subsection{流程图对比}
 下面使用流程图对比传统 CSMA/CD 与 CSMA/DCR 的运行逻辑。
 
-\tikzstyle{startstop} = [rectangle, rounded corners, minimum width=2.8cm, minimum height=0.8cm,text centered, draw=black, fill=red!20, font=\small\sffamily]
-\tikzstyle{process} = [rectangle, minimum width=2.8cm, minimum height=0.8cm, text centered, draw=black, fill=orange!20, inner sep=4pt, font=\small\sffamily]
-\tikzstyle{decision} = [diamond, aspect=2, minimum width=2.8cm, minimum height=0.8cm, text centered, draw=black, fill=green!20, inner sep=0pt, font=\small\sffamily]
-\tikzstyle{arrow} = [thick,->,>=stealth, rounded corners]
+\tikzstyle{startstop} = [rectangle, rounded corners, minimum width=2.5cm, minimum height=0.8cm,text centered, draw=black, fill=red!30]
+\tikzstyle{io} = [trapezium, trapezium left angle=70, trapezium right angle=110, minimum width=2.5cm, minimum height=0.8cm, text centered, draw=black, fill=blue!30]
+\tikzstyle{process} = [rectangle, minimum width=2.5cm, minimum height=0.8cm, text centered, draw=black, fill=orange!30, inner sep=4pt]
+\tikzstyle{decision} = [diamond, aspect=2.2, minimum width=2.5cm, minimum height=0.8cm, text centered, draw=black, fill=green!30, inner sep=0pt]
+\tikzstyle{arrow} = [thick,->,>=stealth]
 
 \begin{figure}[H]
 	\centering
 	\resizebox{0.48\textwidth}{!}{
-		\begin{tikzpicture}[node distance=1.8cm and 2.2cm]
+		\begin{tikzpicture}[node distance=1.8cm]
 			\node (start) [startstop] {节点有数据发送};
-			\node (sense) [decision, below=0.8cm of start] {信道空闲?};
-			\node (wait) [process, left=1.0cm of sense] {持续侦听};
-			\node (send) [process, below=0.8cm of sense] {开始发送数据};
-			\node (col) [decision, below=0.8cm of send] {检测到冲突?};
-			\node (jam) [process, right=1.0cm of col] {发送Jam并停止};
-			\node (backoff) [process, above=1.8cm of jam] {等待随机时间};
-			\node (success) [startstop, below=0.8cm of col] {发送成功};
+			\node (sense) [decision, below of=start, yshift=-0.6cm] {信道空闲?};
+			\node (wait) [process, left of=sense, xshift=-1.5cm] {持续侦听};
+			\node (send) [process, below of=sense, yshift=-0.6cm] {开始发送数据};
+			\node (col) [decision, below of=send, yshift=-0.6cm] {检测到冲突?};
+			\node (jam) [process, right of=col, xshift=1.5cm] {发送Jam并停止};
+			\node (backoff) [process, above of=jam, yshift=0.8cm] {二进制指数退避};
+			\node (success) [startstop, below of=col, yshift=-0.6cm] {发送成功};
 
 			\draw [arrow] (start) -- (sense);
 			\draw [arrow] (sense) -- node[anchor=south] {否} (wait);
-			\draw [arrow] (wait.north) |- ([yshift=0.6cm]sense.north) -- (sense.north);
+			\draw [arrow] (wait.north) |- ([yshift=0.5cm]sense.north) -- (sense.north);
 			\draw [arrow] (sense) -- node[anchor=east] {是} (send);
 			\draw [arrow] (send) -- (col);
 			\draw [arrow] (col) -- node[anchor=east] {否} (success);
 			\draw [arrow] (col) -- node[anchor=south] {是} (jam);
 			\draw [arrow] (jam) -- (backoff);
-			\draw [arrow] (backoff.north) |- ([yshift=0.6cm]sense.north) -- (sense.north);
+			\draw [arrow] (backoff.north) |- ([yshift=0.8cm]sense.north) -- (sense.north);
 		\end{tikzpicture}
 	}
 	\hfill
 	\resizebox{0.48\textwidth}{!}{
-		\begin{tikzpicture}[node distance=1.8cm and 2.2cm]
+		\begin{tikzpicture}[node distance=1.8cm]
 			\node (start) [startstop] {节点有数据发送};
-			\node (sense) [decision, below=0.8cm of start] {信道空闲?};
-			\node (wait) [process, left=1.0cm of sense] {等待解决期结束};
-			\node (send) [process, below=0.8cm of sense] {开始发送数据};
-			\node (col) [decision, below=0.8cm of send] {检测到冲突?};
-			\node (jam) [process, right=1.0cm of col] {发送Jam};
-			\node (dcr) [process, below=0.6cm of jam] {进入确定性排队};
-			\node (send_dcr) [process, below=0.6cm of dcr] {微时隙发送};
-			\node (success) [startstop, below=0.8cm of col] {发送成功};
+			\node (sense) [decision, below of=start, yshift=-0.6cm] {信道空闲?};
+			\node (wait) [process, left of=sense, xshift=-1.8cm] {等待解决期结束};
+			\node (send) [process, below of=sense, yshift=-0.6cm] {开始发送数据};
+			\node (col) [decision, below of=send, yshift=-0.6cm] {检测到冲突?};
+			\node (jam) [process, right of=col, xshift=1.8cm] {发送Jam};
+			\node (dcr) [process, below of=jam, yshift=-0.2cm] {进入确定性排队};
+			\node (send_dcr) [process, below of=dcr, yshift=-0.2cm] {微时隙发送};
+			\node (success) [startstop, below of=col, yshift=-2.2cm] {发送成功};
 
 			\draw [arrow] (start) -- (sense);
-			\draw [arrow] (sense) -- node[anchor=south] {否} (wait);
-			\draw [arrow] (wait.north) |- ([yshift=0.6cm]sense.north) -- (sense.north);
+			\draw [arrow] (sense) -- node[anchor=south] {否/解决期} (wait);
+			\draw [arrow] (wait.north) |- ([yshift=0.5cm]sense.north) -- (sense.north);
 			\draw [arrow] (sense) -- node[anchor=east] {是} (send);
 			\draw [arrow] (send) -- (col);
 			\draw [arrow] (col) -- node[anchor=east] {否} (success);
 			\draw [arrow] (col) -- node[anchor=south] {是} (jam);
 			\draw [arrow] (jam) -- (dcr);
 			\draw [arrow] (dcr) -- (send_dcr);
-			\draw [arrow] (send_dcr.west) |- (success.east);
+			\draw [arrow] (send_dcr.west) -- (success.east);
 		\end{tikzpicture}
 	}
 	\caption{左图：传统 CSMA/CD 协议流程；右图：新型 CSMA/DCR 协议流程}
 \end{figure}
 
-
 \section{理论计算与可行性分析}
 在网络负载为 $G$（单位时间内尝试发送的数据包总数）时，对于传统 CSMA/CD：
 $$ S_{\text{CSMA/CD}} = \frac{G e^{-G}}{1 + G a} $$
-其中 $a$ 为传播时延与报文传输时间之比。当 $G$ 逐渐增大且发生冲突后，受限于多次碰撞和等待随机时间的算法，大量的时隙被闲置，信道利用率呈雪崩式下降。
+其中 $a$ 为传播时延与报文传输时间之比。当 $G$ 逐渐增大且发生冲突后，受限于多次碰撞和二进制指数退避算法，大量的时隙被闲置，信道利用率呈雪崩式下降。
 
 而在新型 CSMA/DCR 协议中：
 \begin{itemize}
@@ -202,7 +182,7 @@ $$ S_{\text{CSMA/CD}} = \frac{G e^{-G}}{1 + G a} $$
 理论上，由于避免了无效的退避期与级联碰撞，无论负载多高，该协议都不会崩溃，而是退化为稳定的满载传输。
 
 \section{可视化仿真分析}
-为验证理论分析并保证对比公平性，我们使用 Python 进行了离散时隙仿真：节点数 $N=20$，数据包长度 $L=5$ 时隙，且两种协议采用统一的信道占用与排队时延统计口径。横轴负载定义为总到达率 $G=N\lambda$，重点考察从轻载到中高载（突发拥塞前后）的性能变化。
+为验证理论计算的准确性，我们使用 Python 进行了离散时隙网络模拟，节点数为 $N=20$，数据包长度为 $5$ 个时隙。测试不同数据包生成率（Network Load）下两者的性能差异。
 
 \begin{figure}[H]
 	\centering
@@ -212,12 +192,10 @@ $$ S_{\text{CSMA/CD}} = \frac{G e^{-G}}{1 + G a} $$
 \end{figure}
 
 \textbf{1. 吞吐量对比（左图）：}
-在轻载区（如 $G\approx0.02$）两者吞吐量接近，说明 CSMA/DCR 不牺牲常态效率；一旦进入中高载，CSMA/CD 因随机退避和重复碰撞导致有效发送比例明显下降，而 CSMA/DCR 在一次碰撞后迅速转入确定性队列，信道利用率持续抬升并稳定在接近满载区间（约 $0.99$）。以代表点 $G\approx0.18$ 为例，CSMA/DCR 吞吐量相对 CSMA/CD 提升约 $31\%$。
+随着负载的上升，传统的 CSMA/CD 在负载超过 0.5 之后开始急剧崩溃，因为大量的节点都在盲目重传和退避，导致信道长时间空置或处于碰撞状态。而 CSMA/DCR 的吞吐量随着负载爬升最终逼近 100\%（完美的调度），展现出惊人的稳定性。
 
 \textbf{2. 延迟对比（右图）：}
-对数坐标下可见，CSMA/CD 的平均时延在负载上升后出现陡峭“拐点”，其根因是指数退避引发的等待时间放大；CSMA/DCR 则将无序重传改为有界排队，时延增长显著平缓。代表点 $G\approx0.12$ 时，CSMA/DCR 平均时延相对 CSMA/CD 降低约 $90\%$；在 $G\approx0.18$ 时仍可降低约 $94\%$。这说明该协议的核心优势不只体现在吞吐量，更体现在拥塞场景下对实时性的稳定保障。
-
-综合两图可得：CSMA/DCR 在轻载下与传统机制几乎等价，而在系统最关键的突发与拥塞区间同时获得\textbf{更高吞吐}与\textbf{更低时延}，体现出面向工业实时网络的综合优势。
+在 CSMA/CD 中，网络拥塞发生后，节点的指数退避上限不断被触发，平均延迟呈现指数级（对数坐标下呈陡峭上升）的爆炸增长。相反，CSMA/DCR 协议将碰撞后的重传纳入有序队列，每个节点的最坏等待时间即为其排队的确定性时延，极大地控制了网络延迟的上限。
 
 \section{典型应用场景分析}
 CSMA/DCR 协议兼具了“低负载下的超低延迟”和“高负载与突发情况下的确定性高吞吐量”两大核心优势。它特别适用于平时网络负载较低，但在特定突发事件下会产生海量并发数据，且对实时性和可靠性要求极高的共享总线或广播域环境。以下是几个典型的应用场景：
