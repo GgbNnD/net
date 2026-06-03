@@ -9,6 +9,10 @@
 #include <thread>
 #include <memory>
 #include <iomanip>
+#include <fstream>
+#include <cstring>
+#include <fcntl.h>
+#include <unistd.h>
 #include "common/platform.h"
 #include "common/utils.h"
 #include "common/types.h"
@@ -17,6 +21,8 @@
 #include "discovery/device_manager.h"
 #include "signaling/signaling_server.h"
 #include "signaling/signaling_client.h"
+#include "transfer/transfer_sender.h"
+#include "transfer/transfer_receiver.h"
 
 // ----------------------------------------------------------
 // 全局变量
@@ -25,6 +31,7 @@ static std::atomic<bool> g_running(true);
 static std::unique_ptr<DeviceDiscovery>  g_discovery;
 static std::unique_ptr<DeviceManager>    g_device_manager;
 static std::unique_ptr<SignalingServer>  g_signaling_server;
+static std::unique_ptr<TransferReceiver> g_transfer_receiver;
 
 // ---- 接受文件传输的目录 ----
 static std::string g_received_files_dir = "./received_files";
@@ -237,6 +244,211 @@ void run_phase3_tests() {
     std::cout << "=== 信令控制通道验证完成 ===" << std::endl << std::endl;
 }
 
+/**
+ * @brief 阶段4: 文件传输模块单元验证
+ *
+ * 验证内容:
+ * 1. Chunk序列化/反序列化
+ * 2. FileChunkIO 分片读写
+ * 3. TransferSender + TransferReceiver 端到端传输
+ */
+void run_phase4_tests() {
+    std::cout << "=== 单元验证: 文件传输模块 ===" << std::endl;
+
+    // 测试1: Chunk 序列化/反序列化
+    {
+        std::cout << "  [测试] Chunk 序列化/反序列化..." << std::endl;
+
+        Chunk original;
+        original.chunk_index  = 42;
+        original.total_chunks = 100;
+        original.file_id      = "test-file-id-123";
+        original.data         = {0x01, 0x02, 0x03, 0x04, 0x05};
+        original.data_size    = 5;
+
+        auto serialized = original.serialize();
+
+        Chunk parsed;
+        if (parsed.deserialize(serialized.data(), serialized.size())) {
+            bool ok = (parsed.chunk_index == 42 &&
+                       parsed.total_chunks == 100 &&
+                       parsed.file_id == "test-file-id-123" &&
+                       parsed.data_size == 5 &&
+                       parsed.data[0] == 0x01 &&
+                       parsed.data[4] == 0x05);
+            std::cout << "    " << (ok ? "[OK]" : "[失败]") << " Chunk 序列化/反序列化"
+                      << (ok ? "" : " 数据不匹配") << std::endl;
+        } else {
+            std::cout << "    [失败] 反序列化失败" << std::endl;
+        }
+    }
+
+    // 测试2: FileChunkIO 读写
+    {
+        std::cout << "  [测试] FileChunkIO 分片读写..." << std::endl;
+
+        const std::string test_file = "/tmp/p2p_test_write.txt";
+        const std::string test_data = "Hello, P2P File Transfer! This is test data for chunked I/O operations."
+                                       "1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        const uint32_t chunk_size = 16;
+
+        // 写入测试文件
+        {
+            std::ofstream ofs(test_file, std::ios::binary);
+            ofs.write(test_data.data(), test_data.size());
+            ofs.close();
+        }
+
+        // 发送方: 分片读取
+        FileChunkIO sender_io(test_file, chunk_size, true);
+        uint32_t total = sender_io.get_total_chunks();
+        std::cout << "    [OK] 总分片数: " << total << " (每片 " << chunk_size << " 字节)" << std::endl;
+
+        // 读取每个分片并存入buffer
+        std::vector<uint8_t> reassembled;
+        for (uint32_t i = 0; i < total; ++i) {
+            Chunk chunk;
+            if (sender_io.read_chunk(i, "test-id", total, chunk)) {
+                reassembled.insert(reassembled.end(), chunk.data.begin(), chunk.data.end());
+            }
+        }
+
+        // 验证重组数据
+        std::string reassembled_str(reassembled.begin(), reassembled.end());
+        if (reassembled_str == test_data) {
+            std::cout << "    [OK] 分片读取重组正确" << std::endl;
+        } else {
+            std::cout << "    [失败] 重组数据不匹配 (len=" << reassembled_str.size()
+                      << " expected=" << test_data.size() << ")" << std::endl;
+        }
+
+        // 接收方: 分片写入
+        const std::string recv_file = "/tmp/p2p_test_receive.txt";
+        {
+            // 预创建文件
+            { std::ofstream ofs(recv_file + ".tmp", std::ios::binary); ofs.close(); }
+            // 预分配空间
+            int fd = open((recv_file + ".tmp").c_str(), O_WRONLY);
+            if (fd >= 0) {
+                (void) ftruncate(fd, static_cast<off_t>(test_data.size()));
+                close(fd);
+            }
+        }
+
+        FileChunkIO receiver_io(recv_file, chunk_size, false);
+        for (uint32_t i = 0; i < total; ++i) {
+            Chunk chunk;
+            sender_io.read_chunk(i, "test-id", total, chunk);
+            receiver_io.write_chunk(chunk);
+        }
+
+        if (receiver_io.get_max_contiguous_chunk() == total - 1) {
+            std::cout << "    [OK] 分片写入完成, 连续块数: "
+                      << receiver_io.get_max_contiguous_chunk() << std::endl;
+        } else {
+            std::cout << "    [失败] 分片写入不完整" << std::endl;
+        }
+
+        receiver_io.commit_received_file();
+        Utils::get_file_size(recv_file);  // verify file exists
+
+        // 校验MD5
+        std::string orig_md5 = Utils::md5_file(test_file);
+        std::string recv_md5 = Utils::md5_file(recv_file);
+        if (orig_md5 == recv_md5) {
+            std::cout << "    [OK] MD5校验一致: " << orig_md5 << std::endl;
+        } else {
+            std::cout << "    [失败] MD5不匹配: " << orig_md5 << " vs " << recv_md5 << std::endl;
+        }
+
+        // 清理
+        std::remove(test_file.c_str());
+        std::remove(recv_file.c_str());
+    }
+
+    // 测试3: 端到端传输 (Sender -> Receiver, 本地回环)
+    {
+        std::cout << "  [测试] 端到端文件传输 (localhost)..." << std::endl;
+
+        // 创建测试文件 (~100KB)
+        const std::string src_file = "/tmp/p2p_e2e_src.bin";
+        {
+            std::ofstream ofs(src_file, std::ios::binary);
+            for (int i = 0; i < 1600; ++i) {  // 1600 * 64 = ~100KB
+                char buf[64];
+                memset(buf, (i % 256), sizeof(buf));
+                ofs.write(buf, sizeof(buf));
+            }
+            ofs.close();
+        }
+
+        std::atomic<bool> received(false);
+        std::string received_path;
+        bool receive_success = false;
+        int test_port = 18890;
+
+        // 启动接收方
+        TransferReceiver receiver(test_port);
+        receiver.set_save_directory("/tmp");
+        receiver.set_on_receive_complete([&](const std::string& /*fid*/,
+                                              const std::string& path,
+                                              bool success) {
+            received = true;
+            received_path = path;
+            receive_success = success;
+        });
+
+        if (!receiver.start()) {
+            std::cout << "    [失败] 接收方启动失败" << std::endl;
+            return;
+        }
+
+        // 短暂等待接收方就绪
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        // 启动发送方
+        TransferSender sender;
+        std::string file_id = Utils::generate_uuid();
+
+        std::atomic<int> progress_count(0);
+        bool send_ok = sender.send_file("127.0.0.1", test_port, src_file, file_id,
+                                        4,  // window_size
+                                        [&](const TransferProgress& /*p*/) {
+            ++progress_count;
+        });
+
+        // 等待接收完成
+        for (int i = 0; i < 20 && !received.load(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        }
+
+        receiver.stop();
+
+        std::cout << "    [OK] 发送方: " << (send_ok ? "成功" : "失败")
+                  << ", 进度回调: " << progress_count.load() << " 次" << std::endl;
+        std::cout << "    [OK] 接收方: " << (receive_success ? "成功" : "失败")
+                  << ", 文件: " << received_path << std::endl;
+
+        if (send_ok && receive_success) {
+            std::string src_md5 = Utils::md5_file(src_file);
+            std::string dst_md5 = Utils::md5_file(received_path);
+            if (src_md5 == dst_md5) {
+                std::cout << "    [OK] 端到端MD5一致: " << src_md5 << std::endl;
+            } else {
+                std::cout << "    [失败] MD5不匹配" << std::endl;
+            }
+        }
+
+        // 清理
+        std::remove(src_file.c_str());
+        if (!received_path.empty()) {
+            std::remove(received_path.c_str());
+        }
+    }
+
+    std::cout << "=== 文件传输模块验证完成 ===" << std::endl << std::endl;
+}
+
 // ============================================================
 // 模块初始化函数
 // ============================================================
@@ -316,6 +528,29 @@ bool init_signaling_service() {
     return true;
 }
 
+bool init_transfer_service() {
+    // 确保接收目录存在
+    (void) system("mkdir -p ./received_files");
+
+    g_transfer_receiver = std::make_unique<TransferReceiver>(Defaults::TRANSFER_PORT);
+    g_transfer_receiver->set_save_directory("./received_files");
+    g_transfer_receiver->set_on_receive_complete([](const std::string& file_id,
+                                                      const std::string& file_path,
+                                                      bool success) {
+        if (success) {
+            std::cout << "[传输] 文件接收完成: " << file_path << std::endl;
+        } else {
+            std::cerr << "[传输] 文件接收失败: file_id=" << file_id << std::endl;
+        }
+    });
+
+    if (!g_transfer_receiver->start()) {
+        std::cerr << "[错误] 传输接收服务启动失败" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 // ============================================================
 // 程序入口
 // ============================================================
@@ -344,10 +579,12 @@ int main() {
     run_phase1_tests();
     run_phase2_tests();
     run_phase3_tests();
+    run_phase4_tests();
 
     // 启动服务
     if (!init_discovery_service()) return 1;
     if (!init_signaling_service()) return 1;
+    if (!init_transfer_service()) return 1;
 
     std::cout << "\n[系统] 所有服务启动完成, 按 Ctrl+C 退出" << std::endl;
     std::cout << "[系统] 信令端口: " << Defaults::SIGNALING_PORT
@@ -384,6 +621,10 @@ int main() {
     if (g_signaling_server) {
         g_signaling_server->stop();
         g_signaling_server.reset();
+    }
+    if (g_transfer_receiver) {
+        g_transfer_receiver->stop();
+        g_transfer_receiver.reset();
     }
     if (g_discovery) {
         g_discovery->stop();
