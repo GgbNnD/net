@@ -1,0 +1,39 @@
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+       background:#0d1117; color:#c9d1d9; min-height:100vh; }
+header { background:#161b22; padding:12px 24px; display:flex;
+         justify-content:space-between; align-items:center; border-bottom:1px solid #30363d; }
+header h1 { font-size:20px; color:#58a6ff; }
+#device-info { font-size:13px; color:#8b949e; }
+#main { display:flex; height:calc(100vh - 52px); }
+#sidebar { width:280px; background:#161b22; border-right:1px solid #30363d;
+           padding:16px; overflow-y:auto; }
+#sidebar h2 { font-size:15px; margin-bottom:12px; }
+#online-count { color:#58a6ff; }
+#device-list { list-style:none; }
+#device-list li { padding:10px 12px; margin-bottom:4px; background:#21262d;
+                  border-radius:6px; cursor:pointer; font-size:14px;
+                  display:flex; align-items:center; gap:8px; }
+#device-list li:hover { background:#30363d; }
+#device-list li.selected { background:#1f6feb; }
+.device-icon { width:8px; height:8px; border-radius:50%; background:#3fb950; flex-shrink:0; }
+#content { flex:1; padding:24px; overflow-y:auto; }
+#content h2 { font-size:16px; margin-bottom:16px; color:#58a6ff; }
+.form-group { margin-bottom:12px; }
+.form-group label { display:block; font-size:13px; color:#8b949e; margin-bottom:4px; }
+select, input[type=file] { width:100%; padding:8px; background:#21262d; border:1px solid #30363d;
+                           border-radius:6px; color:#c9d1d9; font-size:14px; }
+button { padding:8px 20px; background:#238636; color:white; border:none;
+         border-radius:6px; cursor:pointer; font-size:14px; }
+button:disabled { background:#21262d; color:#484f58; cursor:not-allowed; }
+button:hover:not(:disabled) { background:#2ea043; }
+#transfer-list { margin-top:16px; }
+.transfer-item { background:#21262d; border-radius:6px; padding:12px; margin-bottom:8px; }
+.transfer-item .name { font-weight:600; font-size:14px; }
+.transfer-item .size { font-size:12px; color:#8b949e; }
+.transfer-item .progress-bar { height:4px; background:#30363d; border-radius:2px;
+                               margin:8px 0; overflow:hidden; }
+.transfer-item .progress-fill { height:100%; background:#58a6ff; transition:width .3s; }
+.transfer-item .progress-fill.done { background:#3fb950; }
+.transfer-item .status { font-size:12px; color:#8b949e; }
+.empty { text-align:center; color:#484f58; padding:24px; font-size:14px; }
