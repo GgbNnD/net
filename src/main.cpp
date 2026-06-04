@@ -1035,7 +1035,6 @@ int main() {
 
     // 启动手动添加设备的 TCP 探活线程 (互相发现)
     g_peer_probe_thread = std::thread([]() {
-        std::map<std::string, int> fail_count;
         while (g_running) {
             std::this_thread::sleep_for(std::chrono::seconds(5));
 
@@ -1050,19 +1049,11 @@ int main() {
                     g_discovery ? g_discovery->get_local_ip() : "127.0.0.1",
                     Defaults::SIGNALING_PORT, 1000);
                 if (alive) {
-                    fail_count[d.id] = 0;
                     DeviceInfo updated = d;
                     updated.last_seen = std::chrono::steady_clock::now();
                     g_device_manager->update_device(updated);
-                } else {
-                    ++fail_count[d.id];
-                    if (fail_count[d.id] >= 3) {
-                        std::cout << "[探活] 手动设备不可达, 移除: "
-                                  << d.name << " (" << d.ip << ")" << std::endl;
-                        g_device_manager->remove_device(d.id);
-                        fail_count.erase(d.id);
-                    }
                 }
+                // 离线不移除, last_seen 不更新, 前端15秒后自动变灰
             }
         }
     });
