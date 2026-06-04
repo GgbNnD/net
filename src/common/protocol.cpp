@@ -36,6 +36,19 @@ json build_device_offline(const std::string& device_id) {
     return msg;
 }
 
+json build_device_hello(const std::string& device_id,
+                         const std::string& device_name,
+                         const std::string& ip,
+                         uint16_t port) {
+    json msg;
+    msg["type"]        = MsgType::DEVICE_HELLO;
+    msg["device_id"]   = device_id;
+    msg["device_name"] = device_name;
+    msg["ip"]          = ip;
+    msg["port"]        = port;
+    return msg;
+}
+
 json build_file_request(const std::string& file_id,
                          const std::string& filename,
                          uint64_t file_size,

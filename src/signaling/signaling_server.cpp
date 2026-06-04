@@ -89,6 +89,10 @@ void SignalingServer::set_on_control_message(ControlMsgCallback callback) {
     m_control_msg_cb = std::move(callback);
 }
 
+void SignalingServer::set_on_device_hello(DeviceHelloCallback callback) {
+    m_device_hello_cb = std::move(callback);
+}
+
 // ============================================================
 // 内部方法
 // ============================================================
@@ -253,6 +257,11 @@ void SignalingServer::handle_client(SOCKET_FD client_sock, const std::string& cl
             Protocol::send_json_message(client_sock, reject);
         }
 
+    } else if (type == MsgType::DEVICE_HELLO) {
+        // TCP探活握手: 通知上层添加发送方设备
+        if (m_device_hello_cb) {
+            m_device_hello_cb(msg, client_ip);
+        }
     } else if (type == MsgType::TRANSFER_CANCEL ||
                type == MsgType::TRANSFER_PAUSE  ||
                type == MsgType::TRANSFER_RESUME ||

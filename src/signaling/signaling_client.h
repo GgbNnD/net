@@ -60,15 +60,23 @@ public:
                       uint32_t timeout_ms = 5000);
 
     /**
-     * @brief 快速测试目标设备的TCP连通性 (不发送任何数据)
+     * @brief 快速测试TCP连通性 + 发送 DEVICE_HELLO 握手 (互相发现)
      * @param target_ip   目标IP
      * @param target_port 目标端口
-     * @param timeout_ms  超时时间 (默认500ms)
-     * @return 能建立TCP连接返回 true
+     * @param my_id       本机设备ID
+     * @param my_name     本机设备名称
+     * @param my_ip       本机IP
+     * @param my_port     本机信令端口
+     * @param timeout_ms  超时时间 (默认1000ms)
+     * @return 能握手成功返回 true
      */
     static bool test_connect(const std::string& target_ip,
                              uint16_t target_port,
-                             uint32_t timeout_ms = 500);
+                             const std::string& my_id,
+                             const std::string& my_name,
+                             const std::string& my_ip,
+                             uint16_t my_port,
+                             uint32_t timeout_ms = 1000);
 
 private:
     /**

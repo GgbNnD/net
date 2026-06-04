@@ -21,6 +21,7 @@ namespace MsgType {
     // === 设备发现阶段 ===
     constexpr const char* DEVICE_BROADCAST = "DEVICE_BROADCAST";  // 设备上线广播
     constexpr const char* DEVICE_OFFLINE   = "DEVICE_OFFLINE";    // 设备离线通知
+    constexpr const char* DEVICE_HELLO     = "DEVICE_HELLO";      // TCP探活握手 (互相发现)
 
     // === 信令协商阶段 ===
     constexpr const char* FILE_REQUEST     = "FILE_REQUEST";      // 文件传输请求
@@ -81,6 +82,14 @@ json build_device_broadcast(const std::string& device_id,
  * @return JSON消息对象
  */
 json build_device_offline(const std::string& device_id);
+
+/**
+ * @brief 构建 TCP 探活握手消息 (互相发现)
+ */
+json build_device_hello(const std::string& device_id,
+                         const std::string& device_name,
+                         const std::string& ip,
+                         uint16_t port);
 
 /**
  * @brief 构建文件传输请求消息 (TCP信令通道)

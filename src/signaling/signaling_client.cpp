@@ -19,10 +19,14 @@ SignalingClient::~SignalingClient() {
 }
 
 /**
- * @brief 快速测试TCP连通性 (仅connect, 不发送数据, 发送RST断开)
+ * @brief TCP探活 + DEVICE_HELLO 握手 (双方互相发现)
  */
 bool SignalingClient::test_connect(const std::string& target_ip,
                                      uint16_t target_port,
+                                     const std::string& my_id,
+                                     const std::string& my_name,
+                                     const std::string& my_ip,
+                                     uint16_t my_port,
                                      uint32_t timeout_ms) {
     SOCKET_FD sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock == INVALID_SOCKET_FD) return false;
@@ -46,6 +50,10 @@ bool SignalingClient::test_connect(const std::string& target_ip,
             return false;
         }
     } else {
+        // 立即连接成功, 发送 DEVICE_HELLO 后关闭
+        NetworkUtils::set_blocking(sock);
+        json hello = Protocol::build_device_hello(my_id, my_name, my_ip, my_port);
+        Protocol::send_json_message(sock, hello);
         CLOSE_SOCKET(sock);
         return true;
     }
@@ -68,6 +76,13 @@ bool SignalingClient::test_connect(const std::string& target_ip,
     int so_error = 0;
     socklen_t so_len = sizeof(so_error);
     bool ok = (getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&so_error, &so_len) == 0 && so_error == 0);
+
+    if (ok) {
+        // 连接成功, 发送 DEVICE_HELLO 让对方发现本机
+        NetworkUtils::set_blocking(sock);
+        json hello = Protocol::build_device_hello(my_id, my_name, my_ip, my_port);
+        Protocol::send_json_message(sock, hello);
+    }
 
     CLOSE_SOCKET(sock);
     return ok;

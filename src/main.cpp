@@ -460,6 +460,9 @@ void run_phase4_tests() {
 // 模块初始化函数
 // ============================================================
 
+static void load_known_devices();
+static void save_known_devices();
+
 bool init_discovery_service() {
     g_device_id = Utils::generate_uuid();
     g_device_name = generate_device_name();
@@ -476,6 +479,9 @@ bool init_discovery_service() {
                   << " (" << device.ip << ":" << device.port << ")" << std::endl;
     });
     g_device_manager->start();
+
+    // 加载持久化的已知设备
+    load_known_devices();
 
     g_discovery = std::make_unique<DeviceDiscovery>(
         g_device_id, g_device_name, Defaults::DISCOVERY_PORT
@@ -520,12 +526,33 @@ bool init_signaling_service() {
 
     // 设置控制消息回调
     g_signaling_server->set_on_control_message([](const json& msg,
-                                                   const std::string& sender_ip) {
+                                                    const std::string& sender_ip) {
         std::string type = msg.value("type", "");
         std::string file_id = msg.value("file_id", "");
         std::cout << "[信令] 收到控制消息: " << type
                   << " (file_id=" << file_id.substr(0, 8) << "..., 来自 " << sender_ip << ")"
                   << std::endl;
+    });
+
+    // 设置 TCP 握手回调: 自动将探测方加入设备列表 (互相发现)
+    g_signaling_server->set_on_device_hello([](const json& hello,
+                                                const std::string& sender_ip) {
+        if (!g_device_manager) return;
+        std::string remote_id   = hello.value("device_id", "");
+        std::string remote_name = hello.value("device_name", "");
+        std::string remote_ip   = hello.value("ip", sender_ip);
+        uint16_t    remote_port = hello.value("port", Defaults::SIGNALING_PORT);
+
+        DeviceInfo device;
+        device.id         = remote_id;
+        device.name       = remote_name;
+        device.ip         = remote_ip;
+        device.port       = remote_port;
+        device.last_seen  = std::chrono::steady_clock::now();
+        device.first_seen = std::chrono::steady_clock::now();
+        device.manual     = true;
+        g_device_manager->update_device(device);
+        save_known_devices();
     });
 
     if (!g_signaling_server->start()) {
@@ -625,6 +652,7 @@ bool init_http_service() {
         device.manual    = true;  // 手动添加的设备, 不因超时被清理
 
         g_device_manager->update_device(device);
+        save_known_devices();
 
         std::cout << "[Web] 手动添加设备: " << device.name << " (" << ip << ")" << std::endl;
 
@@ -660,6 +688,7 @@ bool init_http_service() {
         for (const auto& d : g_device_manager->get_online_devices()) {
             if (d.ip == target_ip && d.manual) {
                 g_device_manager->remove_device(d.id);
+                save_known_devices();
                 std::cout << "[Web] 手动移除设备: " << d.name << " (" << target_ip << ")" << std::endl;
                 break;
             }
@@ -852,6 +881,56 @@ bool init_transfer_service() {
 // 程序入口
 // ============================================================
 
+static constexpr const char* KNOWN_DEVICES_FILE = "known_devices.json";
+
+static void save_known_devices() {
+    if (!g_device_manager) return;
+    json arr = json::array();
+    for (const auto& d : g_device_manager->get_online_devices()) {
+        if (!d.manual) continue;
+        json entry;
+        entry["id"]   = d.id;
+        entry["name"] = d.name;
+        entry["ip"]   = d.ip;
+        entry["port"] = d.port;
+        arr.push_back(entry);
+    }
+    std::ofstream f(KNOWN_DEVICES_FILE);
+    if (f.is_open()) {
+        f << arr.dump(2);
+        std::cout << "[持久化] 已保存 " << arr.size() << " 个已知设备" << std::endl;
+    }
+}
+
+static void load_known_devices() {
+    if (!g_device_manager) return;
+    std::ifstream f(KNOWN_DEVICES_FILE);
+    if (!f.is_open()) return;
+    try {
+        json arr = json::parse(f);
+        int loaded = 0;
+        for (const auto& entry : arr) {
+            DeviceInfo device;
+            device.id         = entry.value("id", Utils::generate_uuid());
+            device.name       = entry.value("name", entry.value("ip", ""));
+            device.ip         = entry.value("ip", "");
+            device.port       = entry.value("port", Defaults::SIGNALING_PORT);
+            device.last_seen  = std::chrono::steady_clock::now();
+            device.first_seen = std::chrono::steady_clock::now();
+            device.manual     = true;
+            if (!device.ip.empty()) {
+                g_device_manager->update_device(device);
+                ++loaded;
+            }
+        }
+        if (loaded > 0) {
+            std::cout << "[持久化] 加载了 " << loaded << " 个已知设备" << std::endl;
+        }
+    } catch (...) {
+        std::cerr << "[持久化] 读取失败, 忽略" << std::endl;
+    }
+}
+
 int main() {
     print_banner();
 
@@ -890,7 +969,7 @@ int main() {
               << " | 发现端口: " << Defaults::DISCOVERY_PORT
               << " | 传输端口: " << Defaults::TRANSFER_PORT << std::endl;
 
-    // 启动手动添加设备的 TCP 探活线程
+    // 启动手动添加设备的 TCP 探活线程 (互相发现)
     g_peer_probe_thread = std::thread([]() {
         std::map<std::string, int> fail_count;
         while (g_running) {
@@ -901,7 +980,11 @@ int main() {
             for (const auto& d : devices) {
                 if (!d.manual) continue;
 
-                bool alive = SignalingClient::test_connect(d.ip, d.port, 800);
+                bool alive = SignalingClient::test_connect(
+                    d.ip, d.port,
+                    g_device_id, g_device_name,
+                    g_discovery ? g_discovery->get_local_ip() : "127.0.0.1",
+                    Defaults::SIGNALING_PORT, 1000);
                 if (alive) {
                     fail_count[d.id] = 0;
                     DeviceInfo updated = d;

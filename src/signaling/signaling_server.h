@@ -44,6 +44,11 @@ using FileRequestCallback = std::function<void(const json& request,
 using ControlMsgCallback = std::function<void(const json& msg,
                                                const std::string& sender_ip)>;
 
+// ----------------------------------------------------------
+// 设备握手回调: 收到 DEVICE_HELLO 时触发 (TCP探活互相发现)
+// ----------------------------------------------------------
+using DeviceHelloCallback = std::function<void(const json& hello, const std::string& sender_ip)>;
+
 /**
  * @class SignalingServer
  * @brief TCP信令服务端: 接收并处理其他设备发来的控制消息
@@ -98,6 +103,11 @@ public:
      */
     void set_on_control_message(ControlMsgCallback callback);
 
+    /**
+     * @brief 设置 TCP 握手回调 (收到 DEVICE_HELLO 时触发)
+     */
+    void set_on_device_hello(DeviceHelloCallback callback);
+
 private:
     uint16_t m_port;                    // 监听端口
     SOCKET_FD m_listen_socket;          // TCP监听Socket
@@ -110,6 +120,7 @@ private:
 
     FileRequestCallback m_file_request_cb;     // 文件请求回调
     ControlMsgCallback  m_control_msg_cb;      // 控制消息回调
+    DeviceHelloCallback m_device_hello_cb;     // TCP握手回调
 
     /**
      * @brief 接受连接线程主函数
