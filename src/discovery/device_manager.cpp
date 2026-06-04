@@ -143,6 +143,14 @@ size_t DeviceManager::get_device_count() const {
     return m_devices.size();
 }
 
+std::string DeviceManager::find_device_id_by_ip(const std::string& ip) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (const auto& pair : m_devices) {
+        if (pair.second.ip == ip) return pair.first;
+    }
+    return "";
+}
+
 void DeviceManager::set_on_device_online(DeviceEventCallback callback) {
     m_online_cb = std::move(callback);
 }

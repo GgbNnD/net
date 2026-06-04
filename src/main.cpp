@@ -539,9 +539,23 @@ bool init_signaling_service() {
                                                 const std::string& sender_ip) {
         if (!g_device_manager) return;
         std::string remote_id   = hello.value("device_id", "");
-        std::string remote_name = hello.value("device_name", "");
+        std::string remote_name = hello.value("device_name", sender_ip);
         std::string remote_ip   = hello.value("ip", sender_ip);
         uint16_t    remote_port = hello.value("port", Defaults::SIGNALING_PORT);
+
+        // 检查是否已有该IP的设备, 有则更新而非新增
+        std::string existing_id = g_device_manager->find_device_id_by_ip(remote_ip);
+        if (!existing_id.empty()) {
+            DeviceInfo update;
+            update.id         = existing_id;
+            update.name       = remote_name;
+            update.ip         = remote_ip;
+            update.port       = remote_port;
+            update.last_seen  = std::chrono::steady_clock::now();
+            update.manual     = true;
+            g_device_manager->update_device(update);
+            return;
+        }
 
         DeviceInfo device;
         device.id         = remote_id;
@@ -583,6 +597,10 @@ bool init_http_service() {
                 dev["ip"]   = d.ip;
                 dev["port"] = d.port;
                 dev["manual"] = d.manual;
+                // 15秒内有探活更新则视为在线
+                auto age = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::steady_clock::now() - d.last_seen).count();
+                dev["online"] = (age < 15);
                 devices.push_back(dev);
             }
         }
@@ -643,14 +661,25 @@ bool init_http_service() {
             return resp.dump();
         }
 
+        // 检查是否已有该IP, 有则更新名称
+        std::string existing_id = g_device_manager->find_device_id_by_ip(ip);
         DeviceInfo device;
-        device.id        = Utils::generate_uuid();
-        device.name      = name.empty() ? ip : name;
-        device.ip        = ip;
-        device.port      = Defaults::SIGNALING_PORT;
-        device.last_seen = std::chrono::steady_clock::now();
-        device.first_seen = std::chrono::steady_clock::now();
-        device.manual    = true;  // 手动添加的设备, 不因超时被清理
+        if (!existing_id.empty()) {
+            device.id        = existing_id;
+            device.name      = name.empty() ? ip : name;
+            device.ip        = ip;
+            device.port      = Defaults::SIGNALING_PORT;
+            device.last_seen = std::chrono::steady_clock::now();
+            device.manual    = true;
+        } else {
+            device.id        = Utils::generate_uuid();
+            device.name      = name.empty() ? ip : name;
+            device.ip        = ip;
+            device.port      = Defaults::SIGNALING_PORT;
+            device.last_seen = std::chrono::steady_clock::now();
+            device.first_seen = std::chrono::steady_clock::now();
+            device.manual    = true;
+        }
 
         g_device_manager->update_device(device);
         save_known_devices();

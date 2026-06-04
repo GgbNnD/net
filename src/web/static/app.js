@@ -27,7 +27,8 @@ function renderDevices(){
     var li=document.createElement('li');li.className='dev';
     if(d.id===selected)li.classList.add('selected');
     var av=d.name[0]||'?';
-    li.innerHTML='<div class="avatar">'+av+'</div><div class="info"><div class="name">'+d.name+'</div><div class="ip">'+d.ip+'</div></div><span class="status online"></span>';
+    var statusCls=d.online?'online':'offline';
+    li.innerHTML='<div class="avatar">'+av+'</div><div class="info"><div class="name">'+d.name+'</div><div class="ip">'+d.ip+'</div></div><span class="status '+statusCls+'"></span>';
     li.onclick=function(){selectDevice(d.id,d.name,d.ip);};
     list.appendChild(li);
   });
