@@ -221,7 +221,7 @@ void TransferReceiver::handle_receive(SOCKET_FD client_sock, const std::string& 
     uint32_t last_ack_count = 0;
     uint32_t chunk_count = 0;
 
-    while (io.get_max_contiguous_chunk() < meta.total_chunks - 1) {
+    while (chunk_count < meta.total_chunks) {
         Chunk chunk;
         if (!recv_chunk(client_sock, chunk)) {
             std::cerr << "[接收] 接收分片失败, 已接收: " << chunk_count << std::endl;

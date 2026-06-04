@@ -851,7 +851,17 @@ bool init_http_service() {
                 return resp.dump();
             }
             tmp_file.write(file_data.data(), file_data.size());
+            tmp_file.flush();
             tmp_file.close();
+        }
+
+        // 验证上传数据的完整性 (base64 编解码是否正确)
+        std::string uploaded_md5 = Utils::md5_file(temp_path);
+        std::string expected_md5 = Utils::md5_data(
+            reinterpret_cast<const uint8_t*>(file_data.data()), file_data.size());
+        if (uploaded_md5 != expected_md5) {
+            std::cerr << "[传输] 警告: 上传文件MD5不一致! 内存=" << expected_md5
+                      << " 磁盘=" << uploaded_md5 << std::endl;
         }
 
         // 使用信令协商
