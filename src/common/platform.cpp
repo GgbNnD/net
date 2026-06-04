@@ -5,6 +5,7 @@
 #include "common/platform.h"
 #include <sstream>
 #include <vector>
+#include <utility>
 
 #ifdef _WIN32
     #pragma comment(lib, "ws2_32.lib")
@@ -188,6 +189,46 @@ std::vector<std::string> get_local_ips() {
 #endif
 
     return ips;
+}
+
+// ----------------------------------------------------------
+// 获取本机IPv4地址和子网掩码
+// ----------------------------------------------------------
+std::vector<std::pair<std::string, std::string>> get_local_ips_with_mask() {
+    std::vector<std::pair<std::string, std::string>> result;
+
+#ifdef _WIN32
+    // Windows: 简单返回没有子网掩码的IP
+    for (const auto& ip : get_local_ips()) {
+        result.emplace_back(ip, "255.255.255.0");  // 默认 /24
+    }
+#else
+    struct ifaddrs* ifaddr;
+    if (getifaddrs(&ifaddr) == -1) {
+        return result;
+    }
+
+    for (struct ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == nullptr || ifa->ifa_netmask == nullptr) continue;
+        if (ifa->ifa_addr->sa_family != AF_INET) continue;
+
+        struct sockaddr_in* addr = (struct sockaddr_in*)ifa->ifa_addr;
+        struct sockaddr_in* mask = (struct sockaddr_in*)ifa->ifa_netmask;
+
+        char ip_str[INET_ADDRSTRLEN];
+        char mask_str[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &addr->sin_addr, ip_str, sizeof(ip_str));
+        inet_ntop(AF_INET, &mask->sin_addr, mask_str, sizeof(mask_str));
+
+        std::string ip(ip_str);
+        if (ip != "127.0.0.1") {
+            result.emplace_back(ip, std::string(mask_str));
+        }
+    }
+    freeifaddrs(ifaddr);
+#endif
+
+    return result;
 }
 
 } // namespace NetworkUtils

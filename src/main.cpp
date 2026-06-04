@@ -7,10 +7,12 @@
 #include <csignal>
 #include <atomic>
 #include <thread>
+#include <mutex>
 #include <memory>
 #include <iomanip>
 #include <fstream>
 #include <cstring>
+#include <set>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -852,6 +854,142 @@ bool init_transfer_service() {
 // 程序入口
 // ============================================================
 
+// ---- 子网扫描辅助函数 ----
+
+static uint32_t ip_to_uint(const std::string& ip) {
+    return ntohl(inet_addr(ip.c_str()));
+}
+
+static std::string uint_to_ip(uint32_t ip) {
+    struct in_addr addr;
+    addr.s_addr = htonl(ip);
+    char buf[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &addr, buf, sizeof(buf));
+    return std::string(buf);
+}
+
+static std::vector<std::string> enumerate_subnet(const std::string& ip_str,
+                                                   const std::string& mask_str) {
+    uint32_t ip   = ip_to_uint(ip_str);
+    uint32_t mask = ip_to_uint(mask_str);
+    uint32_t network   = ip & mask;
+    uint32_t broadcast = network | (~mask);
+    uint32_t count = broadcast - network;
+    if (count < 2) return {};
+    // 上限 16384 (4 个 /18), 防止极端子网
+    if (count > 16384) count = 16384;
+    // 优先扫描本机 /24
+    std::vector<uint32_t> ip_list;
+    uint32_t local_net = ip & 0xFFFFFF00U;
+    for (uint32_t i = 1; i < 256 && i < count; ++i) {
+        if (local_net + i == ip) continue;
+        ip_list.push_back(local_net + i);
+    }
+    // 剩余范围: 所有未被覆盖的 IP
+    for (uint32_t i = 1; i < count; ++i) {
+        uint32_t host = network + i;
+        if (host == ip || host == 0 || host >= broadcast) continue;
+        if (host >= local_net && host < local_net + 256) continue; // 已在 local /24 中
+        ip_list.push_back(host);
+    }
+    std::vector<std::string> hosts;
+    for (auto h : ip_list) hosts.push_back(uint_to_ip(h));
+    return hosts;
+}
+
+// 批量非阻塞扫描 (前向声明, batch_scan_parallel 会调用)
+static std::vector<std::string> batch_scan(const std::vector<std::string>& hosts,
+                                             uint16_t port, int timeout_ms);
+
+// 多线程并行扫描 (大子网时加速)
+static std::vector<std::string> batch_scan_parallel(const std::vector<std::string>& hosts,
+                                                      uint16_t port, int timeout_ms,
+                                                      int num_threads = 8) {
+    if (hosts.size() <= 256) return batch_scan(hosts, port, timeout_ms);
+
+    size_t chunk = (hosts.size() + num_threads - 1) / num_threads;
+    std::vector<std::string> all_responsive;
+    std::mutex mtx;
+    std::vector<std::thread> workers;
+
+    for (int t = 0; t < num_threads; ++t) {
+        size_t start = t * chunk;
+        if (start >= hosts.size()) break;
+        size_t end = std::min(start + chunk, hosts.size());
+        workers.emplace_back([&, start, end, port, timeout_ms]() {
+            std::vector<std::string> slice(hosts.begin() + start, hosts.begin() + end);
+            auto found = batch_scan(slice, port, timeout_ms);
+            std::lock_guard<std::mutex> lock(mtx);
+            all_responsive.insert(all_responsive.end(), found.begin(), found.end());
+        });
+    }
+    for (auto& w : workers) w.join();
+    return all_responsive;
+}
+
+// 批量非阻塞扫描: 并发探测 subnet 内主机, 返回可达的 IP 列表
+static std::vector<std::string> batch_scan(const std::vector<std::string>& hosts,
+                                             uint16_t port, int timeout_ms) {
+    std::vector<std::string> responsive;
+    constexpr int BATCH = 32;  // 每批并发连接数
+
+    for (size_t base = 0; base < hosts.size(); base += BATCH) {
+        size_t end = std::min(base + BATCH, hosts.size());
+        std::vector<SOCKET_FD> socks;
+        std::vector<std::string> ips;
+
+        for (size_t i = base; i < end; ++i) {
+            SOCKET_FD sock = socket(AF_INET, SOCK_STREAM, 0);
+            if (sock == INVALID_SOCKET_FD) continue;
+            NetworkUtils::set_nonblocking(sock);
+
+            struct sockaddr_in addr;
+            memset(&addr, 0, sizeof(addr));
+            addr.sin_family = AF_INET;
+            addr.sin_port   = htons(port);
+            inet_pton(AF_INET, hosts[i].c_str(), &addr.sin_addr);
+
+            int ret = connect(sock, (struct sockaddr*)&addr, sizeof(addr));
+            if (ret == 0) {
+                responsive.push_back(hosts[i]);
+                CLOSE_SOCKET(sock);
+            } else if (ret < 0 && NetworkUtils::is_would_block(GET_SOCKET_ERROR())) {
+                socks.push_back(sock);
+                ips.push_back(hosts[i]);
+            } else {
+                CLOSE_SOCKET(sock);
+            }
+        }
+
+        if (!socks.empty()) {
+            int max_fd = 0;
+            fd_set wfds;
+            FD_ZERO(&wfds);
+            for (auto s : socks) {
+                FD_SET(s, &wfds);
+                if ((int)s > max_fd) max_fd = (int)s;
+            }
+            struct timeval tv;
+            tv.tv_sec  = timeout_ms / 1000;
+            tv.tv_usec = (timeout_ms % 1000) * 1000;
+            select(max_fd + 1, nullptr, &wfds, nullptr, &tv);
+
+            for (size_t k = 0; k < socks.size(); ++k) {
+                if (FD_ISSET(socks[k], &wfds)) {
+                    int so_err = 0;
+                    socklen_t sl = sizeof(so_err);
+                    if (getsockopt(socks[k], SOL_SOCKET, SO_ERROR, (char*)&so_err, &sl) == 0
+                        && so_err == 0) {
+                        responsive.push_back(ips[k]);
+                    }
+                }
+                CLOSE_SOCKET(socks[k]);
+            }
+        }
+    }
+    return responsive;
+}
+
 int main() {
     print_banner();
 
@@ -890,34 +1028,87 @@ int main() {
               << " | 发现端口: " << Defaults::DISCOVERY_PORT
               << " | 传输端口: " << Defaults::TRANSFER_PORT << std::endl;
 
-    // 启动手动添加设备的 TCP 探活线程 (解决组播不可用时的设备发现)
+    // 启动 TCP 探活 + 子网扫描线程 (替代不可靠的组播发现)
     g_peer_probe_thread = std::thread([]() {
-        std::map<std::string, int> fail_count;  // device_id -> 连续失败次数
-        while (g_running) {
-            std::this_thread::sleep_for(std::chrono::seconds(5));
+        std::map<std::string, int> fail_count;
+        bool  first_scan = true;
+        auto  last_rescan = std::chrono::steady_clock::now();
 
-            if (!g_device_manager) continue;
+        // 先短暂等待所有服务就绪
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+
+        while (g_running) {
+            if (!g_device_manager) {
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+                continue;
+            }
+
+            auto now = std::chrono::steady_clock::now();
+            int64_t since_rescan = std::chrono::duration_cast<std::chrono::seconds>(
+                now - last_rescan).count();
+
+            // 启动时 + 每60秒扫描整个子网, 发现新设备
+            if (first_scan || since_rescan >= 60) {
+                first_scan = false;
+                last_rescan = now;
+
+                auto ip_masks = NetworkUtils::get_local_ips_with_mask();
+                std::set<std::string> already_in_list;
+                {
+                    for (const auto& d : g_device_manager->get_online_devices())
+                        already_in_list.insert(d.ip);
+                }
+
+                for (const auto& [ip, mask] : ip_masks) {
+                    auto hosts = enumerate_subnet(ip, mask);
+                    if (hosts.empty()) continue;
+
+                    std::cout << "[扫描] 正在扫描子网 " << ip << "/" << mask
+                              << " (" << hosts.size() << " 个主机)..." << std::endl;
+
+                    auto found = batch_scan_parallel(hosts, Defaults::SIGNALING_PORT, 60);
+                    for (const auto& rip : found) {
+                        if (already_in_list.count(rip)) continue;
+                        already_in_list.insert(rip);
+
+                        DeviceInfo dev;
+                        dev.id         = Utils::generate_uuid();
+                        dev.name       = rip;
+                        dev.ip         = rip;
+                        dev.port       = Defaults::SIGNALING_PORT;
+                        dev.last_seen  = std::chrono::steady_clock::now();
+                        dev.first_seen = std::chrono::steady_clock::now();
+                        dev.manual     = true;
+                        g_device_manager->update_device(dev);
+                        std::cout << "  [扫描] 发现新设备: " << rip << std::endl;
+                    }
+                }
+            }
+
+            // 对已知的手动设备做探活
             auto devices = g_device_manager->get_online_devices();
             for (const auto& d : devices) {
-                if (!d.manual) continue;  // 仅探活手动添加的设备
+                if (!d.manual) continue;
 
-                bool alive = SignalingClient::test_connect(d.ip, d.port, 1000);
+                bool alive = SignalingClient::test_connect(d.ip, d.port, 800);
                 if (alive) {
                     fail_count[d.id] = 0;
-                    // 更新 last_seen 防止超时
                     DeviceInfo updated = d;
                     updated.last_seen = std::chrono::steady_clock::now();
                     g_device_manager->update_device(updated);
                 } else {
                     ++fail_count[d.id];
                     if (fail_count[d.id] >= 3) {
-                        std::cout << "[探活] 手动设备不可达, 移除: "
+                        std::cout << "[探活] 设备不可达, 移除: "
                                   << d.name << " (" << d.ip << ")" << std::endl;
                         g_device_manager->remove_device(d.id);
                         fail_count.erase(d.id);
                     }
                 }
             }
+
+            // 每5秒一个循环
+            std::this_thread::sleep_for(std::chrono::seconds(5));
         }
     });
 

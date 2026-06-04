@@ -123,4 +123,10 @@ bool set_reuse_addr(SOCKET_FD sock);
  */
 std::vector<std::string> get_local_ips();
 
+/**
+ * @brief 获取本机IPv4地址及对应子网掩码
+ * @return pair<ip, netmask> 列表
+ */
+std::vector<std::pair<std::string, std::string>> get_local_ips_with_mask();
+
 } // namespace NetworkUtils
