@@ -5,6 +5,7 @@ var devs=[],msg={},selected='',selfName='';
 function init(){
   refreshDevices();setInterval(refreshDevices,3000);
   refreshTransfers();setInterval(refreshTransfers,1000);
+  refreshMessages();setInterval(refreshMessages,2000);
   document.getElementById('send-btn').onclick=sendMessage;
   document.getElementById('add-peer-btn').onclick=addPeer;
   document.getElementById('file-input').onchange=onFileSelected;
@@ -158,6 +159,20 @@ async function removePeer(ip){
   document.getElementById('chat-area').innerHTML='<div class="empty-chat">请从左侧选择设备</div>';
   document.getElementById('send-btn').disabled=true;
   refreshDevices();
+}
+
+async function refreshMessages(){
+  for(var i=0;i<devs.length;i++){
+    var d=devs[i];
+    try{
+      var r=await fetch(API+'/messages/poll',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'ip='+encodeURIComponent(d.ip)});
+      var data=await r.json();
+      (data.messages||[]).forEach(function(m){
+        addTextMsg(d.id,'received',m.text);
+      });
+    }catch(e){}
+  }
+  if(selected)renderMessages();
 }
 
 init();})();

@@ -42,6 +42,10 @@ static std::unique_ptr<HttpServer>       g_http_server;
 static std::vector<std::thread>          g_transfer_threads;
 static std::thread                       g_peer_probe_thread;
 
+// 收到的文本消息缓存 (sender_ip -> [{text, time}])
+static std::mutex                                  g_rcv_msg_mutex;
+static std::map<std::string, std::vector<json>>    g_rcv_messages;
+
 // ---- 接受文件传输的目录 ----
 static std::string g_received_files_dir = "./received_files";
 
@@ -530,6 +534,12 @@ bool init_signaling_service() {
     g_signaling_server->set_on_control_message([](const json& msg,
                                                     const std::string& sender_ip) {
         std::string type = msg.value("type", "");
+        if (type == MsgType::TEXT_MESSAGE) {
+            std::string text = msg.value("text", "");
+            std::lock_guard<std::mutex> lock(g_rcv_msg_mutex);
+            g_rcv_messages[sender_ip].push_back({{"text", text}, {"time", Utils::get_timestamp_ms()}});
+            return;
+        }
         std::string file_id = msg.value("file_id", "");
         std::cout << "[信令] 收到控制消息: " << type
                   << " (file_id=" << file_id.substr(0, 8) << "..., 来自 " << sender_ip << ")"
@@ -635,6 +645,32 @@ bool init_http_service() {
             }
         }
         resp["transfers"] = list;
+        return resp.dump();
+    });
+
+    // POST /api/messages/poll - 拉取收到的文本消息
+    g_http_server->on_post("/api/messages/poll", [](const std::string& body, const std::map<std::string, std::string>&) -> std::string {
+        json resp;
+        std::string ip;
+        auto pairs = Utils::split_string(body, '&');
+        for (const auto& p : pairs) {
+            auto eq = p.find('=');
+            if (eq != std::string::npos) {
+                std::string key = Utils::url_decode(p.substr(0, eq));
+                std::string val = Utils::url_decode(p.substr(eq + 1));
+                if (key == "ip") ip = val;
+            }
+        }
+        json msgs = json::array();
+        {
+            std::lock_guard<std::mutex> lock(g_rcv_msg_mutex);
+            auto it = g_rcv_messages.find(ip);
+            if (it != g_rcv_messages.end()) {
+                for (const auto& m : it->second) msgs.push_back(m);
+                g_rcv_messages.erase(it);
+            }
+        }
+        resp["messages"] = msgs;
         return resp.dump();
     });
 
