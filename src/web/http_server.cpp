@@ -33,7 +33,8 @@ void HttpServer::on_get(const std::string& path,
 }
 
 void HttpServer::on_post(const std::string& path,
-                          std::function<std::string(const std::string&)> handler) {
+                          std::function<std::string(const std::string&,
+                                     const std::map<std::string, std::string>&)> handler) {
     m_post_handlers[path] = std::move(handler);
 }
 
@@ -133,13 +134,13 @@ void HttpServer::accept_loop() {
 }
 
 void HttpServer::handle_client(SOCKET_FD client_sock) {
-    // 设置2秒超时
+    // 设置读超时 (POST大文件需要更长超时)
     struct timeval tv;
-    tv.tv_sec = 2;
+    tv.tv_sec = 10;
     tv.tv_usec = 0;
     setsockopt(client_sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
-    // 读取HTTP请求
+    // 第一阶段: 读取HTTP头部 (直到 \r\n\r\n)
     char buf[RECV_BUF];
     std::string request_str;
     while (true) {
@@ -147,14 +148,41 @@ void HttpServer::handle_client(SOCKET_FD client_sock) {
         if (n <= 0) break;
         buf[n] = '\0';
         request_str += buf;
-        // 如果收到了完整的HTTP头部 (以 \r\n\r\n 结尾)
         if (request_str.find("\r\n\r\n") != std::string::npos) break;
-        if (request_str.size() > 65536) break;  // 防止过大请求
+        if (request_str.size() > 65536) break;
     }
 
     if (request_str.empty()) {
         CLOSE_SOCKET(client_sock);
         return;
+    }
+
+    // 第二阶段: 根据 Content-Length 继续读取剩余 body
+    size_t hdr_end = request_str.find("\r\n\r\n");
+    if (hdr_end != std::string::npos) {
+        // 从头部提取 Content-Length
+        size_t content_len = 0;
+        size_t cl_pos = request_str.find("Content-Length:");
+        if (cl_pos != std::string::npos) {
+            cl_pos += 15;
+            while (cl_pos < request_str.size() && request_str[cl_pos] == ' ') ++cl_pos;
+            size_t end_pos = request_str.find("\r\n", cl_pos);
+            if (end_pos != std::string::npos) {
+                try { content_len = std::stoul(request_str.substr(cl_pos, end_pos - cl_pos)); }
+                catch (...) { content_len = 0; }
+            }
+        }
+
+        size_t body_start = hdr_end + 4;
+        size_t body_received = request_str.size() > body_start ? request_str.size() - body_start : 0;
+        while (content_len > 0 && body_received < content_len) {
+            size_t to_read = std::min<size_t>(RECV_BUF - 1, content_len - body_received);
+            int n = SOCK_RECV(client_sock, buf, static_cast<int>(to_read), 0);
+            if (n <= 0) break;
+            buf[n] = '\0';
+            request_str += buf;
+            body_received += n;
+        }
     }
 
     // 解析请求
@@ -189,7 +217,7 @@ void HttpServer::handle_client(SOCKET_FD client_sock) {
     } else if (req.method == "POST") {
         auto it = m_post_handlers.find(req.path);
         if (it != m_post_handlers.end()) {
-            response_body = it->second(req.body);
+            response_body = it->second(req.body, req.headers);
         } else {
             status_code = 404;
             response_body = "{\"error\":\"Not Found\"}";

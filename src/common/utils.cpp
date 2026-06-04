@@ -427,4 +427,60 @@ std::vector<std::string> split_string(const std::string& str, char delim) {
     return result;
 }
 
+// ----------------------------------------------------------
+// Base64 解码
+// ----------------------------------------------------------
+std::string base64_decode(const std::string& input) {
+    static const std::string chars =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string output;
+    int i = 0;
+    unsigned char char_array_4[4], char_array_3[3];
+
+    for (char c : input) {
+        if (c == '=') break;
+        auto pos = chars.find(c);
+        if (pos == std::string::npos) continue;
+        char_array_4[i++] = static_cast<unsigned char>(pos);
+        if (i == 4) {
+            char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+            char_array_3[1] = ((char_array_4[1] & 0x0f) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+            char_array_3[2] = ((char_array_4[2] & 0x03) << 6) + char_array_4[3];
+            for (int j = 0; j < 3; j++) output += static_cast<char>(char_array_3[j]);
+            i = 0;
+        }
+    }
+    if (i) {
+        for (int j = i; j < 4; j++) char_array_4[j] = 0;
+        char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+        char_array_3[1] = ((char_array_4[1] & 0x0f) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+        for (int j = 0; j < i - 1; j++) output += static_cast<char>(char_array_3[j]);
+    }
+    return output;
+}
+
+// ----------------------------------------------------------
+// URL 解码
+// ----------------------------------------------------------
+std::string url_decode(const std::string& input) {
+    std::string result;
+    for (size_t i = 0; i < input.size(); ++i) {
+        if (input[i] == '%' && i + 2 < input.size()) {
+            int hex = 0;
+            std::istringstream iss(input.substr(i + 1, 2));
+            if (iss >> std::hex >> hex) {
+                result += static_cast<char>(hex);
+                i += 2;
+            } else {
+                result += input[i];
+            }
+        } else if (input[i] == '+') {
+            result += ' ';
+        } else {
+            result += input[i];
+        }
+    }
+    return result;
+}
+
 } // namespace Utils

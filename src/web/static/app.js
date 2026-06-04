@@ -17,6 +17,7 @@
 
     document.getElementById('file-input').addEventListener('change', onFilesSelected);
     document.getElementById('send-btn').addEventListener('click', onSendClick);
+    document.getElementById('add-peer-btn').addEventListener('click', onAddPeer);
   }
 
   // --- 设备列表 ---
@@ -41,7 +42,7 @@
 
     if (devices.length === 0) {
       list.innerHTML = '<li class="empty">暂无在线设备</li>';
-      select.innerHTML = '<option value="">--- 请先勾选设备 ---</option>';
+      select.innerHTML = '<option value="">--- 请先添加设备 ---</option>';
       return;
     }
 
@@ -66,7 +67,7 @@
       select.appendChild(opt);
     });
 
-    select.addEventListener('change', function() {
+    select.onchange = function() {
       const val = select.value;
       if (val) {
         const parts = val.split(':');
@@ -77,7 +78,7 @@
         selectedDevicePort = 0;
       }
       updateSendBtn();
-    });
+    };
   }
 
   function updateSendBtn() {
@@ -88,27 +89,83 @@
 
   function onFilesSelected() { updateSendBtn(); }
 
-  // --- 发送 ---
+  // --- 手动添加设备 ---
+  async function onAddPeer() {
+    const ipInput = document.getElementById('peer-ip');
+    const nameInput = document.getElementById('peer-name');
+    const ip = ipInput.value.trim();
+    const name = nameInput.value.trim() || ip;
+
+    if (!ip) return;
+
+    try {
+      const body = 'ip=' + encodeURIComponent(ip) + '&name=' + encodeURIComponent(name);
+      const resp = await fetch(API + '/peers/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body
+      });
+      const data = await resp.json();
+      if (data.success) {
+        ipInput.value = '';
+        nameInput.value = '';
+        refreshDevices();
+      }
+    } catch(e) {
+      console.error('Failed to add peer:', e);
+    }
+  }
+
+  // --- 发送文件 ---
   async function onSendClick() {
     const fileInput = document.getElementById('file-input');
     if (!fileInput.files.length || !selectedDeviceIp) return;
 
     const file = fileInput.files[0];
-    const fd = new FormData();
-    fd.append('target_ip', selectedDeviceIp);
-    fd.append('target_port', String(selectedDevicePort));
-    fd.append('filename', file.name);
-    fd.append('file_size', String(file.size));
+    const btn = document.getElementById('send-btn');
+    btn.disabled = true;
+    btn.textContent = '读取中...';
 
-    try {
-      const resp = await fetch(API + '/transfer', { method: 'POST', body: fd });
-      const data = await resp.json();
-      if (data.success) {
-        addTransferItem(data.file_id, file.name, file.size, 'TRANSFERRING');
+    // 读取文件并编码为 base64
+    const reader = new FileReader();
+    reader.onload = async function() {
+      // reader.result 格式: "data:application/octet-stream;base64,xxxxx"
+      const base64 = reader.result.split(',')[1];
+
+      const body = 'target_ip=' + encodeURIComponent(selectedDeviceIp) +
+                   '&target_port=' + String(selectedDevicePort) +
+                   '&filename=' + encodeURIComponent(file.name) +
+                   '&filedata=' + encodeURIComponent(base64);
+
+      try {
+        const resp = await fetch(API + '/transfer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: body
+        });
+        const data = await resp.json();
+        if (data.success) {
+          addTransferItem(data.file_id, file.name, file.size, 'TRANSFERRING');
+          fileInput.value = '';
+        } else {
+          alert('发送失败: ' + (data.error || '未知错误'));
+        }
+      } catch(e) {
+        console.error('Failed to start transfer:', e);
+        alert('发送失败: ' + e.message);
       }
-    } catch(e) {
-      console.error('Failed to start transfer:', e);
-    }
+
+      btn.disabled = false;
+      btn.textContent = '发送';
+    };
+
+    reader.onerror = function() {
+      alert('文件读取失败');
+      btn.disabled = false;
+      btn.textContent = '发送';
+    };
+
+    reader.readAsDataURL(file);
   }
 
   function addTransferItem(fileId, name, size, state) {

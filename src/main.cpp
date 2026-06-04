@@ -13,6 +13,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include "common/platform.h"
 #include "common/utils.h"
 #include "common/types.h"
@@ -583,49 +584,132 @@ bool init_http_service() {
         return resp.dump();
     });
 
-    // POST /api/transfer - 发起文件传输
-    g_http_server->on_post("/api/transfer", [](const std::string& body) -> std::string {
+    // POST /api/peers/add - 手动添加设备 (绕过组播发现)
+    g_http_server->on_post("/api/peers/add", [](const std::string& body, const std::map<std::string, std::string>&) -> std::string {
         json resp;
-        // 简单解析 form 格式: target_ip=xxx&filename=yyy&file_size=zzz
-        std::string target_ip = "127.0.0.1";
-        uint16_t target_port = Defaults::SIGNALING_PORT;
-        std::string filename = "test.dat";
-        uint64_t file_size = 0;
+        std::string ip;
+        std::string name;
 
-        // 解析 key=value 格式
         auto pairs = Utils::split_string(body, '&');
         for (const auto& p : pairs) {
             auto eq = p.find('=');
             if (eq != std::string::npos) {
-                std::string key = p.substr(0, eq);
-                std::string val = p.substr(eq + 1);
+                std::string key = Utils::url_decode(p.substr(0, eq));
+                std::string val = Utils::url_decode(p.substr(eq + 1));
+                if (key == "ip") ip = val;
+                else if (key == "name") name = val;
+            }
+        }
+
+        if (ip.empty()) {
+            resp["success"] = false;
+            resp["error"] = "缺少IP地址";
+            return resp.dump();
+        }
+
+        if (!g_device_manager) {
+            resp["success"] = false;
+            resp["error"] = "设备管理器未初始化";
+            return resp.dump();
+        }
+
+        DeviceInfo device;
+        device.id        = Utils::generate_uuid();  // 手动设备用独立UUID
+        device.name      = name.empty() ? ip : name;
+        device.ip        = ip;
+        device.port      = Defaults::SIGNALING_PORT;
+        device.last_seen = std::chrono::steady_clock::now();
+        device.first_seen = std::chrono::steady_clock::now();
+
+        g_device_manager->update_device(device);
+
+        std::cout << "[Web] 手动添加设备: " << device.name << " (" << ip << ")" << std::endl;
+
+        resp["success"] = true;
+        resp["id"]   = device.id;
+        resp["name"] = device.name;
+        resp["ip"]   = device.ip;
+        return resp.dump();
+    });
+
+    // POST /api/transfer - 发起文件传输 (支持 base64 编码文件上传)
+    g_http_server->on_post("/api/transfer", [](const std::string& body, const std::map<std::string, std::string>&) -> std::string {
+        json resp;
+        std::string target_ip = "127.0.0.1";
+        uint16_t target_port = Defaults::SIGNALING_PORT;
+        std::string filename = "test.dat";
+        std::string filedata_b64;
+
+        auto pairs = Utils::split_string(body, '&');
+        for (const auto& p : pairs) {
+            auto eq = p.find('=');
+            if (eq != std::string::npos) {
+                std::string key = Utils::url_decode(p.substr(0, eq));
+                std::string val = Utils::url_decode(p.substr(eq + 1));
                 if (key == "target_ip") target_ip = val;
                 else if (key == "target_port") target_port = static_cast<uint16_t>(std::stoul(val));
                 else if (key == "filename") filename = val;
-                else if (key == "file_size") file_size = std::stoull(val);
+                else if (key == "filedata") filedata_b64 = val;
             }
+        }
+
+        if (filedata_b64.empty()) {
+            resp["success"] = false;
+            resp["error"] = "未提供文件数据";
+            return resp.dump();
+        }
+
+        // 解码 base64 文件内容并保存到临时文件
+        std::string file_data = Utils::base64_decode(filedata_b64);
+        if (file_data.empty()) {
+            resp["success"] = false;
+            resp["error"] = "文件解码失败";
+            return resp.dump();
+        }
+
+        uint64_t file_size = file_data.size();
+
+        // 保存到临时目录
+        std::string temp_dir = "/tmp/p2p_send";
+        mkdir(temp_dir.c_str(), 0755);
+        std::string temp_path = temp_dir + "/" + filename;
+
+        {
+            std::ofstream tmp_file(temp_path, std::ios::binary);
+            if (!tmp_file.is_open()) {
+                resp["success"] = false;
+                resp["error"] = "无法创建临时文件";
+                return resp.dump();
+            }
+            tmp_file.write(file_data.data(), file_data.size());
+            tmp_file.close();
         }
 
         // 使用信令协商
         SignalingClient sig_client;
         std::string file_id = Utils::generate_uuid();
-        json request = Protocol::build_file_request(
-            file_id, filename, file_size, "", Defaults::CHUNK_SIZE,
-            static_cast<uint32_t>((file_size + Defaults::CHUNK_SIZE - 1) / Defaults::CHUNK_SIZE)
+        uint32_t total_chunks = static_cast<uint32_t>(
+            (file_size + Defaults::CHUNK_SIZE - 1) / Defaults::CHUNK_SIZE
         );
-        json response;
-        if (!sig_client.send_request(target_ip, target_port, request, response)) {
+
+        json request = Protocol::build_file_request(
+            file_id, filename, file_size, "", Defaults::CHUNK_SIZE, total_chunks
+        );
+        json sig_response;
+        if (!sig_client.send_request(target_ip, target_port, request, sig_response)) {
             resp["success"] = false;
             resp["error"] = "信令协商失败";
             return resp.dump();
         }
 
-        std::string status = response.value("status", "");
+        std::string status = sig_response.value("status", "");
         if (status != ResponseStatus::ACCEPT) {
             resp["success"] = false;
             resp["error"] = "对方拒绝";
             return resp.dump();
         }
+
+        uint16_t transfer_port = sig_response.value("port", Defaults::TRANSFER_PORT);
 
         // 创建传输任务
         TransferTask task;
@@ -633,11 +717,55 @@ bool init_http_service() {
         task.meta.filename    = filename;
         task.meta.file_size   = file_size;
         task.meta.chunk_size  = Defaults::CHUNK_SIZE;
+        task.meta.total_chunks = total_chunks;
         task.target.ip        = target_ip;
-        task.target.port      = response.value("port", Defaults::TRANSFER_PORT);
+        task.target.port      = transfer_port;
         task.state            = TransferState::TRANSFERRING;
         task.is_sender        = true;
         g_transfer_manager->add_task(task);
+
+        // 在后台线程中启动实际文件传输
+        std::string captured_file_id = file_id;
+        std::string captured_ip      = target_ip;
+        uint16_t    captured_port    = transfer_port;
+        std::string captured_path    = temp_path;
+
+        g_transfer_threads.push_back(std::thread([captured_file_id, captured_ip, captured_port, captured_path, total_chunks, file_size]() {
+            TransferSender sender;
+            std::cout << "[传输] 开始发送: " << captured_path
+                      << " -> " << captured_ip << ":" << captured_port << std::endl;
+
+            bool ok = sender.send_file(captured_ip, captured_port, captured_path,
+                                       captured_file_id, Defaults::WINDOW_SIZE,
+                [=](const TransferProgress& progress) {
+                    if (g_transfer_manager) {
+                        g_transfer_manager->update_progress(captured_file_id, progress.sent_chunks, progress.bytes_sent, progress.speed);
+                    }
+                });
+
+            if (g_transfer_manager) {
+                g_transfer_manager->mark_complete(captured_file_id, ok);
+            }
+
+            // 清理临时文件
+            std::remove(captured_path.c_str());
+
+            if (ok) {
+                std::cout << "[传输] 文件发送成功: " << captured_file_id.substr(0, 8) << std::endl;
+            } else {
+                std::cerr << "[传输] 文件发送失败: " << captured_file_id.substr(0, 8) << std::endl;
+            }
+        }));
+
+        // 清理已完成的线程
+        g_transfer_threads.erase(
+            std::remove_if(g_transfer_threads.begin(), g_transfer_threads.end(),
+                [](std::thread& t) {
+                    if (!t.joinable()) return true;
+                    return false;
+                }),
+            g_transfer_threads.end()
+        );
 
         resp["success"] = true;
         resp["file_id"] = file_id;
@@ -751,6 +879,12 @@ int main() {
 
     // 优雅退出
     std::cout << "\n[系统] 正在停止所有服务..." << std::endl;
+
+    // 等待正在进行的传输完成
+    for (auto& t : g_transfer_threads) {
+        if (t.joinable()) t.join();
+    }
+    g_transfer_threads.clear();
 
     if (g_signaling_server) {
         g_signaling_server->stop();

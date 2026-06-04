@@ -37,3 +37,9 @@ button:hover:not(:disabled) { background:#2ea043; }
 .transfer-item .progress-fill.done { background:#3fb950; }
 .transfer-item .status { font-size:12px; color:#8b949e; }
 .empty { text-align:center; color:#484f58; padding:24px; font-size:14px; }
+#manual-add { margin-top:20px; padding-top:16px; border-top:1px solid #30363d; }
+#manual-add h3 { font-size:13px; color:#8b949e; margin-bottom:8px; }
+#manual-add input { width:100%; padding:8px; background:#0d1117; border:1px solid #30363d;
+                    border-radius:6px; color:#c9d1d9; font-size:13px; margin-bottom:6px; }
+#manual-add button { width:100%; background:#1f6feb; font-size:13px; }
+#manual-add button:hover:not(:disabled) { background:#388bfd; }

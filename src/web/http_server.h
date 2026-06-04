@@ -46,10 +46,11 @@ public:
     /**
      * @brief 注册 POST 路由处理函数
      * @param path    URL路径
-     * @param handler 处理函数: 接收 body 字符串, 返回 JSON 字符串
+     * @param handler 处理函数: 接收 body + headers, 返回 JSON 字符串
      */
     void on_post(const std::string& path,
-                 std::function<std::string(const std::string& body)> handler);
+                 std::function<std::string(const std::string& body,
+                                           const std::map<std::string, std::string>& headers)> handler);
 
     /**
      * @brief 设置静态文件根目录
@@ -66,7 +67,8 @@ private:
     std::mutex m_handler_mutex;
 
     std::map<std::string, std::function<std::string()>> m_get_handlers;
-    std::map<std::string, std::function<std::string(const std::string&)>> m_post_handlers;
+    std::map<std::string, std::function<std::string(const std::string&,
+                                                     const std::map<std::string, std::string>&)>> m_post_handlers;
 
     bool create_listen_socket();
     void accept_loop();

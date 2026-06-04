@@ -93,4 +93,18 @@ uint64_t get_file_size(const std::string& file_path);
  */
 std::vector<std::string> split_string(const std::string& str, char delim);
 
+/**
+ * @brief Base64 解码
+ * @param input Base64 编码的字符串
+ * @return 解码后的原始字节
+ */
+std::string base64_decode(const std::string& input);
+
+/**
+ * @brief URL 解码 (percent-decoding)
+ * @param input URL 编码的字符串
+ * @return 解码后的字符串
+ */
+std::string url_decode(const std::string& input);
+
 } // namespace Utils
