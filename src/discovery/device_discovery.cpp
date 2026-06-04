@@ -8,6 +8,7 @@
 #include <iostream>
 #include <cstring>
 #include <chrono>
+#include <sstream>
 
 namespace {
 
@@ -156,19 +157,41 @@ bool DeviceDiscovery::create_socket() {
         return false;
     }
 
-    // 4. 加入组播组
+    // 4. 加入组播组 (在所有非回环网络接口上)
     // 原理: 通知操作系统, 本机对该组播地址感兴趣,
     //       当其他设备向该组播地址发送数据时, OS会转发一份给我们
-    struct ip_mreq mreq;
-    mreq.imr_multiaddr.s_addr = inet_addr(m_multicast_addr.c_str());  // 组播地址
-    mreq.imr_interface.s_addr = inet_addr(m_local_ip.c_str());         // 本机IP
+    //       在多接口机器上(如docker), 需要在所有接口上加入组播组,
+    //       否则组播包可能从非默认接口到达而被丢弃
+    auto ips = NetworkUtils::get_local_ips();
+    int joined_count = 0;
+    for (const auto& ip : ips) {
+        struct ip_mreq mreq;
+        mreq.imr_multiaddr.s_addr = inet_addr(m_multicast_addr.c_str());
+        mreq.imr_interface.s_addr = inet_addr(ip.c_str());
 
-    if (setsockopt(m_socket, IPPROTO_IP, IP_ADD_MEMBERSHIP,
-                   (const char*)&mreq, sizeof(mreq)) < 0) {
-        std::cerr << "[发现] setsockopt(IP_ADD_MEMBERSHIP) 失败: "
-                  << NetworkUtils::get_last_error_string() << std::endl;
+        if (setsockopt(m_socket, IPPROTO_IP, IP_ADD_MEMBERSHIP,
+                       (const char*)&mreq, sizeof(mreq)) < 0) {
+            std::cerr << "[发现] 警告: 在接口 " << ip
+                      << " 加入组播组失败: "
+                      << NetworkUtils::get_last_error_string() << std::endl;
+        } else {
+            ++joined_count;
+        }
+    }
+
+    if (joined_count == 0) {
+        std::cerr << "[发现] 错误: 无法在任何接口上加入组播组" << std::endl;
         close_socket();
         return false;
+    }
+
+    // 同时用主接口确保组播join (兼容性保底)
+    {
+        struct ip_mreq mreq;
+        mreq.imr_multiaddr.s_addr = inet_addr(m_multicast_addr.c_str());
+        mreq.imr_interface.s_addr = inet_addr(m_local_ip.c_str());
+        setsockopt(m_socket, IPPROTO_IP, IP_ADD_MEMBERSHIP,
+                   (const char*)&mreq, sizeof(mreq));
     }
 
     // 5. 设置组播TTL (生存时间) = 1, 限制在本地网络内, 不路由到外网
@@ -329,15 +352,53 @@ void DeviceDiscovery::recv_loop() {
 }
 
 // ----------------------------------------------------------
-// 选择本机通信IP
+// 选择本机通信IP (使用UDP connect trick 探测默认路由接口)
 // ----------------------------------------------------------
 std::string DeviceDiscovery::select_local_ip() {
+    // 创建一个临时UDP socket, connect到外网地址(不实际发包)
+    // connect()触发内核路由表查询, 然后用getsockname()获取
+    // 内核为该路由选择的源IP, 这就是本机对外通信的主接口IP
+    SOCKET_FD temp_sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (temp_sock != INVALID_SOCKET_FD) {
+        struct sockaddr_in remote;
+        memset(&remote, 0, sizeof(remote));
+        remote.sin_family = AF_INET;
+        remote.sin_port = htons(53);
+        inet_pton(AF_INET, "1.1.1.1", &remote.sin_addr);
+
+        if (connect(temp_sock, (struct sockaddr*)&remote, sizeof(remote)) == 0) {
+            struct sockaddr_in local_addr;
+            socklen_t len = sizeof(local_addr);
+            if (getsockname(temp_sock, (struct sockaddr*)&local_addr, &len) == 0) {
+                char ip[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &local_addr.sin_addr, ip, sizeof(ip));
+                CLOSE_SOCKET(temp_sock);
+
+                std::string result(ip);
+                if (result != "127.0.0.1" && !result.empty()) {
+                    std::cout << "[发现] 探测到主接口IP: " << result
+                              << " (UDP connect方式)" << std::endl;
+                    return result;
+                }
+            }
+        }
+        CLOSE_SOCKET(temp_sock);
+    }
+
+    // 回退方案: 返回第一个非回环IPv4地址
     auto ips = NetworkUtils::get_local_ips();
 
     if (ips.empty()) {
         return "";
     }
 
-    // 返回第一个非回环IPv4地址
+    std::ostringstream oss;
+    for (size_t i = 0; i < ips.size(); ++i) {
+        if (i > 0) oss << ", ";
+        oss << ips[i];
+    }
+    std::cout << "[发现] 本机所有非回环IP: " << oss.str() << std::endl;
+
+    std::cout << "[发现] 使用回退方案, 选择第一个IP: " << ips[0] << std::endl;
     return ips[0];
 }
