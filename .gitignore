@@ -16,3 +16,5 @@ Thumbs.db
 *.exe
 *.out
 P2PFileTransfer
+received_files/
+received_files/

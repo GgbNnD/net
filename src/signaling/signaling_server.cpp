@@ -222,10 +222,9 @@ void SignalingServer::handle_client(SOCKET_FD client_sock, const std::string& cl
     tv.tv_usec = 0;
     setsockopt(client_sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
-    // 接收JSON消息
+    // 接收JSON消息 (TCP探活等连接可能不发数据, 静默关闭)
     json msg;
     if (!Protocol::recv_json_message(client_sock, msg)) {
-        std::cerr << "[信令] 接收消息失败或超时, 连接来自: " << client_ip << std::endl;
         CLOSE_SOCKET(client_sock);
         return;
     }
