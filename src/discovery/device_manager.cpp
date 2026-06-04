@@ -168,8 +168,14 @@ void DeviceManager::cleanup_loop() {
         {
             std::lock_guard<std::mutex> lock(m_mutex);
 
-            // 遍历所有设备, 找到超时的
+            // 遍历所有设备, 找到超时的 (手动添加的设备不会超时)
             for (auto it = m_devices.begin(); it != m_devices.end(); ) {
+                // 手动添加的设备跳过超时清理
+                if (it->second.manual) {
+                    ++it;
+                    continue;
+                }
+
                 auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                     now - it->second.last_seen
                 ).count();

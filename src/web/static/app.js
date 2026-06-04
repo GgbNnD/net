@@ -51,14 +51,28 @@
 
     devices.forEach(function(d) {
       const li = document.createElement('li');
-      li.innerHTML = '<span class="device-icon"></span>' + d.name + ' <small>(' + d.ip + ')</small>';
-      li.onclick = function() {
+      var removeHtml = '';
+      if (d.manual) {
+        removeHtml = ' <span class="remove-btn" data-ip="' + d.ip + '" title="移除">×</span>';
+      }
+      li.innerHTML = '<span class="device-icon"></span>' + d.name + ' <small>(' + d.ip + ')</small>' + removeHtml;
+      // 点击设备主体选择设备
+      li.addEventListener('click', function(e) {
+        if (e.target.classList.contains('remove-btn')) return;
         selectedDeviceIp = d.ip;
         selectedDevicePort = d.port || 8889;
         document.querySelectorAll('#device-list li').forEach(function(el) { el.classList.remove('selected'); });
         li.classList.add('selected');
         updateSendBtn();
-      };
+      });
+      // 点击移除按钮
+      var rmBtn = li.querySelector('.remove-btn');
+      if (rmBtn) {
+        rmBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          removePeer(d.ip);
+        });
+      }
       list.appendChild(li);
 
       const opt = document.createElement('option');
@@ -113,6 +127,20 @@
       }
     } catch(e) {
       console.error('Failed to add peer:', e);
+    }
+  }
+
+  async function removePeer(ip) {
+    try {
+      const body = 'ip=' + encodeURIComponent(ip);
+      await fetch(API + '/peers/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body
+      });
+      refreshDevices();
+    } catch(e) {
+      console.error('Failed to remove peer:', e);
     }
   }
 

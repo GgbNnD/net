@@ -38,6 +38,7 @@ static std::unique_ptr<TransferReceiver> g_transfer_receiver;
 static std::unique_ptr<TransferManager>  g_transfer_manager;
 static std::unique_ptr<HttpServer>       g_http_server;
 static std::vector<std::thread>          g_transfer_threads;
+static std::thread                       g_peer_probe_thread;
 
 // ---- 接受文件传输的目录 ----
 static std::string g_received_files_dir = "./received_files";
@@ -554,6 +555,7 @@ bool init_http_service() {
                 dev["name"] = d.name;
                 dev["ip"]   = d.ip;
                 dev["port"] = d.port;
+                dev["manual"] = d.manual;
                 devices.push_back(dev);
             }
         }
@@ -614,12 +616,13 @@ bool init_http_service() {
         }
 
         DeviceInfo device;
-        device.id        = Utils::generate_uuid();  // 手动设备用独立UUID
+        device.id        = Utils::generate_uuid();
         device.name      = name.empty() ? ip : name;
         device.ip        = ip;
         device.port      = Defaults::SIGNALING_PORT;
         device.last_seen = std::chrono::steady_clock::now();
         device.first_seen = std::chrono::steady_clock::now();
+        device.manual    = true;  // 手动添加的设备, 不因超时被清理
 
         g_device_manager->update_device(device);
 
@@ -629,6 +632,40 @@ bool init_http_service() {
         resp["id"]   = device.id;
         resp["name"] = device.name;
         resp["ip"]   = device.ip;
+        return resp.dump();
+    });
+
+    // POST /api/peers/remove - 移除手动添加的设备
+    g_http_server->on_post("/api/peers/remove", [](const std::string& body, const std::map<std::string, std::string>&) -> std::string {
+        json resp;
+        std::string target_ip;
+
+        auto pairs = Utils::split_string(body, '&');
+        for (const auto& p : pairs) {
+            auto eq = p.find('=');
+            if (eq != std::string::npos) {
+                std::string key = Utils::url_decode(p.substr(0, eq));
+                std::string val = Utils::url_decode(p.substr(eq + 1));
+                if (key == "ip") target_ip = val;
+            }
+        }
+
+        if (!g_device_manager || target_ip.empty()) {
+            resp["success"] = false;
+            resp["error"] = "无效请求";
+            return resp.dump();
+        }
+
+        // 查找匹配IP的设备
+        for (const auto& d : g_device_manager->get_online_devices()) {
+            if (d.ip == target_ip && d.manual) {
+                g_device_manager->remove_device(d.id);
+                std::cout << "[Web] 手动移除设备: " << d.name << " (" << target_ip << ")" << std::endl;
+                break;
+            }
+        }
+
+        resp["success"] = true;
         return resp.dump();
     });
 
@@ -853,6 +890,37 @@ int main() {
               << " | 发现端口: " << Defaults::DISCOVERY_PORT
               << " | 传输端口: " << Defaults::TRANSFER_PORT << std::endl;
 
+    // 启动手动添加设备的 TCP 探活线程 (解决组播不可用时的设备发现)
+    g_peer_probe_thread = std::thread([]() {
+        std::map<std::string, int> fail_count;  // device_id -> 连续失败次数
+        while (g_running) {
+            std::this_thread::sleep_for(std::chrono::seconds(5));
+
+            if (!g_device_manager) continue;
+            auto devices = g_device_manager->get_online_devices();
+            for (const auto& d : devices) {
+                if (!d.manual) continue;  // 仅探活手动添加的设备
+
+                bool alive = SignalingClient::test_connect(d.ip, d.port, 1000);
+                if (alive) {
+                    fail_count[d.id] = 0;
+                    // 更新 last_seen 防止超时
+                    DeviceInfo updated = d;
+                    updated.last_seen = std::chrono::steady_clock::now();
+                    g_device_manager->update_device(updated);
+                } else {
+                    ++fail_count[d.id];
+                    if (fail_count[d.id] >= 3) {
+                        std::cout << "[探活] 手动设备不可达, 移除: "
+                                  << d.name << " (" << d.ip << ")" << std::endl;
+                        g_device_manager->remove_device(d.id);
+                        fail_count.erase(d.id);
+                    }
+                }
+            }
+        }
+    });
+
     // 主循环
     while (g_running) {
         std::this_thread::sleep_for(std::chrono::seconds(5));
@@ -885,6 +953,10 @@ int main() {
         if (t.joinable()) t.join();
     }
     g_transfer_threads.clear();
+
+    if (g_peer_probe_thread.joinable()) {
+        g_peer_probe_thread.join();
+    }
 
     if (g_signaling_server) {
         g_signaling_server->stop();

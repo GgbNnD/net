@@ -43,3 +43,5 @@ button:hover:not(:disabled) { background:#2ea043; }
                     border-radius:6px; color:#c9d1d9; font-size:13px; margin-bottom:6px; }
 #manual-add button { width:100%; background:#1f6feb; font-size:13px; }
 #manual-add button:hover:not(:disabled) { background:#388bfd; }
+.remove-btn { cursor:pointer; color:#8b949e; font-size:18px; padding:0 6px; float:right; line-height:1; }
+.remove-btn:hover { color:#f85149; }

@@ -59,6 +59,17 @@ public:
                       json& response,
                       uint32_t timeout_ms = 5000);
 
+    /**
+     * @brief 快速测试目标设备的TCP连通性 (不发送任何数据)
+     * @param target_ip   目标IP
+     * @param target_port 目标端口
+     * @param timeout_ms  超时时间 (默认500ms)
+     * @return 能建立TCP连接返回 true
+     */
+    static bool test_connect(const std::string& target_ip,
+                             uint16_t target_port,
+                             uint32_t timeout_ms = 500);
+
 private:
     /**
      * @brief 创建TCP Socket并连接到目标

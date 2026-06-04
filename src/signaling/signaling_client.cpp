@@ -18,8 +18,63 @@ SignalingClient::SignalingClient() {
 SignalingClient::~SignalingClient() {
 }
 
+/**
+ * @brief 快速测试TCP连通性 (仅connect, 不发送数据, 发送RST断开)
+ */
+bool SignalingClient::test_connect(const std::string& target_ip,
+                                     uint16_t target_port,
+                                     uint32_t timeout_ms) {
+    SOCKET_FD sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock == INVALID_SOCKET_FD) return false;
+
+    NetworkUtils::set_nonblocking(sock);
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(target_port);
+    if (inet_pton(AF_INET, target_ip.c_str(), &addr.sin_addr) <= 0) {
+        CLOSE_SOCKET(sock);
+        return false;
+    }
+
+    int conn_result = connect(sock, (struct sockaddr*)&addr, sizeof(addr));
+    if (conn_result < 0) {
+        int err = GET_SOCKET_ERROR();
+        if (!NetworkUtils::is_would_block(err)) {
+            CLOSE_SOCKET(sock);
+            return false;
+        }
+    } else {
+        CLOSE_SOCKET(sock);
+        return true;
+    }
+
+    fd_set write_fds;
+    FD_ZERO(&write_fds);
+    FD_SET(sock, &write_fds);
+
+    struct timeval timeout;
+    timeout.tv_sec  = timeout_ms / 1000;
+    timeout.tv_usec = (timeout_ms % 1000) * 1000;
+
+    int select_result = select((int)(sock + 1), nullptr, &write_fds, nullptr, &timeout);
+
+    if (select_result <= 0) {
+        CLOSE_SOCKET(sock);
+        return false;
+    }
+
+    int so_error = 0;
+    socklen_t so_len = sizeof(so_error);
+    bool ok = (getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&so_error, &so_len) == 0 && so_error == 0);
+
+    CLOSE_SOCKET(sock);
+    return ok;
+}
+
 // ============================================================
-// 公共接口
+// 内部方法
 // ============================================================
 
 /**

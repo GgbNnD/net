@@ -22,6 +22,7 @@ struct DeviceInfo {
     using TimePoint = std::chrono::steady_clock::time_point;
     TimePoint last_seen;        // 最后收到该设备广播的时间 (用于心跳超时检测)
     TimePoint first_seen;       // 首次发现该设备的时间
+    bool      manual = false;   // 是否为手动添加 (手动添加的设备不会因超时被清理)
 };
 
 // ----------------------------------------------------------
