@@ -857,7 +857,7 @@ bool init_transfer_service() {
 // ---- 子网扫描辅助函数 ----
 
 static uint32_t ip_to_uint(const std::string& ip) {
-    return ntohl(inet_addr(ip.c_str()));
+    return ntohl(static_cast<uint32_t>(inet_addr(ip.c_str())));
 }
 
 static std::string uint_to_ip(uint32_t ip) {
@@ -875,38 +875,46 @@ static std::vector<std::string> enumerate_subnet(const std::string& ip_str,
     uint32_t network   = ip & mask;
     uint32_t broadcast = network | (~mask);
     uint32_t count = broadcast - network;
-    if (count < 2) return {};
-    // 上限 16384 (4 个 /18), 防止极端子网
-    if (count > 16384) count = 16384;
-    // 优先扫描本机 /24
-    std::vector<uint32_t> ip_list;
+    if (count < 2 || count > 65536) return {};
+
+    // 两阶段扫描: 先稀疏探测每个 /24 的 .1 .2, 再对可用的 /24 做全扫描
+    std::set<uint32_t> seen;
+    std::vector<std::string> sparse_hosts;
     uint32_t local_net = ip & 0xFFFFFF00U;
-    for (uint32_t i = 1; i < 256 && i < count; ++i) {
-        if (local_net + i == ip) continue;
-        ip_list.push_back(local_net + i);
+
+    // Phase 1 候选: 每个 /24 的 .1 和 .2 (本机 /24 扫全部)
+    for (uint32_t net24 = network; net24 < broadcast; net24 += 256) {
+        if ((net24 & mask) != network) break;
+        if (net24 == local_net) {
+            // 本机 /24: 全部扫描
+            for (uint32_t i = 1; i < 256; ++i) {
+                uint32_t host = net24 + i;
+                if (host == ip || host == 0 || host >= broadcast) continue;
+                seen.insert(host);
+                sparse_hosts.push_back(uint_to_ip(host));
+            }
+        } else {
+            // 其他 /24: 只探 .1 和 .2
+            for (uint32_t offset : {1U, 2U}) {
+                uint32_t host = net24 + offset;
+                if (host == ip || host >= broadcast) continue;
+                seen.insert(host);
+                sparse_hosts.push_back(uint_to_ip(host));
+            }
+        }
     }
-    // 剩余范围: 所有未被覆盖的 IP
-    for (uint32_t i = 1; i < count; ++i) {
-        uint32_t host = network + i;
-        if (host == ip || host == 0 || host >= broadcast) continue;
-        if (host >= local_net && host < local_net + 256) continue; // 已在 local /24 中
-        ip_list.push_back(host);
-    }
-    std::vector<std::string> hosts;
-    for (auto h : ip_list) hosts.push_back(uint_to_ip(h));
-    return hosts;
+    return sparse_hosts;
 }
 
-// 批量非阻塞扫描 (前向声明, batch_scan_parallel 会调用)
+// 前向声明
 static std::vector<std::string> batch_scan(const std::vector<std::string>& hosts,
                                              uint16_t port, int timeout_ms);
 
-// 多线程并行扫描 (大子网时加速)
+// 多线程并行扫描
 static std::vector<std::string> batch_scan_parallel(const std::vector<std::string>& hosts,
                                                       uint16_t port, int timeout_ms,
                                                       int num_threads = 8) {
-    if (hosts.size() <= 256) return batch_scan(hosts, port, timeout_ms);
-
+    if (hosts.empty()) return {};
     size_t chunk = (hosts.size() + num_threads - 1) / num_threads;
     std::vector<std::string> all_responsive;
     std::mutex mtx;
@@ -917,10 +925,13 @@ static std::vector<std::string> batch_scan_parallel(const std::vector<std::strin
         if (start >= hosts.size()) break;
         size_t end = std::min(start + chunk, hosts.size());
         workers.emplace_back([&, start, end, port, timeout_ms]() {
-            std::vector<std::string> slice(hosts.begin() + start, hosts.begin() + end);
-            auto found = batch_scan(slice, port, timeout_ms);
-            std::lock_guard<std::mutex> lock(mtx);
-            all_responsive.insert(all_responsive.end(), found.begin(), found.end());
+            auto found = batch_scan(
+                std::vector<std::string>(hosts.begin() + start, hosts.begin() + end),
+                port, timeout_ms);
+            if (!found.empty()) {
+                std::lock_guard<std::mutex> lock(mtx);
+                all_responsive.insert(all_responsive.end(), found.begin(), found.end());
+            }
         });
     }
     for (auto& w : workers) w.join();
@@ -1034,8 +1045,8 @@ int main() {
         bool  first_scan = true;
         auto  last_rescan = std::chrono::steady_clock::now();
 
-        // 先短暂等待所有服务就绪
-        std::this_thread::sleep_for(std::chrono::seconds(2));
+        // 稍等让所有服务就绪
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
         while (g_running) {
             if (!g_device_manager) {
@@ -1066,7 +1077,7 @@ int main() {
                     std::cout << "[扫描] 正在扫描子网 " << ip << "/" << mask
                               << " (" << hosts.size() << " 个主机)..." << std::endl;
 
-                    auto found = batch_scan_parallel(hosts, Defaults::SIGNALING_PORT, 60);
+                    auto found = batch_scan_parallel(hosts, Defaults::SIGNALING_PORT, 200);
                     for (const auto& rip : found) {
                         if (already_in_list.count(rip)) continue;
                         already_in_list.insert(rip);
