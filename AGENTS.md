@@ -3,108 +3,136 @@
 ## Build & Run
 
 ```bash
-# Configure (required after adding new .cpp files — GLOB_RECURSE needs re-run)
-cmake -B build -S .
+cmake -B build -S .          # re-run when adding .cpp (GLOB_RECURSE snapshots)
 cmake --build build -j$(nproc)
-
-# Run (terminates on Ctrl+C; tests run at startup, then services enter main loop)
-./build/bin/P2PFileTransfer
+./build/bin/P2PFileTransfer   # tests run at startup, then services enter main loop
 ```
-
-**When adding new `.cpp` files:** Must re-run `cmake -B build -S .` because CMakeLists.txt uses `file(GLOB_RECURSE)`, which snapshots at configure time.
 
 ## Architecture
 
 ```
-src/main.cpp           → Entry point, inline unit tests, service orchestration
+src/main.cpp           → Entry point, inline unit tests, REST API, probe thread
 src/common/            → Shared types, platform socket wrapper, utils, JSON protocol
 src/discovery/         → UDP multicast device discovery (port 8888)
 src/signaling/         → TCP signaling channel (port 8889, short-connection)
-src/transfer/          → TCP file transfer (port 8890, long-connection, sliding window)
-src/web/               → Minimal HTTP server + REST API + static frontend (port 8891)
+src/transfer/          → TCP file transfer (port 8890, sliding window, 64KB chunks)
+src/web/               → HTTP server + REST API + static frontend (port 8891)
+src/web/static/        → index.html, app.js, style.css (WeChat-style chat UI)
 lib/nlohmann/json.hpp  → Vendored JSON library (v3.11.3)
 ```
 
 Each layer runs in its own thread(s). All services register callbacks rather than direct coupling.
 
-## Testing
-
-No external test framework. Tests are inline in `main.cpp` — `run_phase1_tests()` through `run_phase4_tests()`:
+## Testing (inline in main.cpp)
 
 1. **Phase 1** — UUID, MD5, formatting, protocol message construction
 2. **Phase 2** — DeviceManager add/remove/timeout callbacks (no network)
-3. **Phase 3** — SignalingServer + SignalingClient round-trip on localhost:18889
-4. **Phase 4** — Chunk serde, FileChunkIO local I/O, e2e TransferSender→TransferReceiver on localhost:18890
+3. **Phase 3** — SignalingServer + SignalingClient round-trip on localhost:**18889**
+4. **Phase 4** — Chunk serde, FileChunkIO local I/O, e2e on localhost:**18890**
 
-Tests run sequentially at startup. If any test fails (e.g., port in use), the program still starts live services and enters the main loop.
+If a test fails (e.g., port in use), the program still starts live services. Phase 4 e2e uses a 100KB file (2 chunks); it does NOT test single-chunk edge cases.
 
-## Port Cleanup After Failed Runs
-
-Test ports can stay in LISTEN from zombie processes. Kill them:
+## Port Cleanup
 
 ```bash
-kill -9 $(ps aux | grep P2PFileTransfer | grep -v grep | awk '{print $2}')
-# Or targeted:
-fuser -k 18889/tcp 18890/tcp 8888/tcp 8889/tcp 8890/tcp
+sudo fuser -k 18889/tcp 18890/tcp 8888/tcp 8889/tcp 8890/tcp
+# or:
+kill -9 $(pgrep -f P2PFileTransfer)
+sleep 2   # wait for TIME_WAIT
 ```
 
-## Common Compilation Pitfalls
+## REST API Endpoints
 
-- **`#include <fstream>`** — Often missing in main.cpp test code that creates test files
-- **`#include <fcntl.h>`, `<unistd.h>`, `<sys/stat.h>`** — Needed for POSIX file operations (`open`, `pread`, `pwrite`, `ftruncate`)
-- **`#include <thread>`, `<chrono>`** — Must be explicit; `std::this_thread::sleep_for` needs them
-- **`json` vs `nlohmann::json`** — `protocol.h` defines `using json = nlohmann::json`. New headers should use `nlohmann::json` (fully qualified) to avoid dependency on `protocol.h` inclusion order.
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/devices` | Online device list (+ `online` bool, `manual` flag) |
+| GET | `/api/transfers` | Transfer tasks (+ `target_ip`, `is_sender`, progress) |
+| POST | `/api/transfer` | Start file send (body: url-encoded, `filedata` = base64) |
+| POST | `/api/message` | Send text via signaling channel |
+| POST | `/api/messages/poll` | Fetch + clear received texts for given IP |
+| POST | `/api/peers/add` | Manual add by IP (deduped, persists to `known_devices.json`) |
+| POST | `/api/peers/remove` | Remove + update `known_devices.json` |
 
-## Protocol Wire Format
-
-All TCP messages on the data channel (port 8890) use a **1-byte type marker** prefix:
-
-| Marker | Description   | Payload Format                           |
-|--------|---------------|------------------------------------------|
-| `'J'`  | JSON message  | `Protocol::send_json_message()` (4-byte big-endian length + JSON) |
-| `'C'`  | Binary chunk  | `Chunk::serialize()` (16-byte header + variable body) |
-
-The signaling channel (port 8889) uses only JSON messages (no marker; short-connection request-response).
+`on_get()` has no query-param support — use POST for parameterized requests.
 
 ## Key Implementation Details
+
+### Multicast route (required)
+UDP multicast to `239.255.255.250:8888` needs a route. Without it, discovery silently fails.
+```bash
+sudo ip route add 224.0.0.0/4 dev <interface>
+```
+Verify with: `ip route show | grep 224`
+
+### select_local_ip() uses UDP connect trick
+Connects a temp socket to `1.1.1.1:53` to trigger kernel routing, then `getsockname()` to get the primary interface IP. Avoids picking docker/virtual IPs. Falls back to first `get_local_ips()` result.
+
+### Multicast join on ALL interfaces
+`create_socket()` calls `IP_ADD_MEMBERSHIP` for every non-loopback IP, not just the selected one. This ensures multicast packets arrive regardless of which interface they come in on.
+
+### Mutual discovery via DEVICE_HELLO
+`SignalingClient::test_connect()` sends a `DEVICE_HELLO` JSON message before closing. The receiving `SignalingServer` calls `m_device_hello_cb` which auto-adds the sender via `DeviceManager`. Both sides see each other after a single manual add.
+
+### Device deduplication by IP
+`DeviceManager::find_device_id_by_ip(ip)` finds existing devices by IP. Both the `DEVICE_HELLO` callback and `/api/peers/add` check this before creating new entries. Also skip self-IP (local addresses are filtered out).
+
+### Device persistence (known_devices.json)
+Manual/auto-discovered devices saved to `known_devices.json`. On startup, `load_known_devices()` loads them, skipping self-IPs and deduplicating by IP. `save_known_devices()` also deduplicates before writing. Both functions must be forward-declared before `init_discovery_service()`.
+
+### Peer probe thread
+Runs every 5 seconds, calls `test_connect()` with local device info. On success, updates `last_seen` (keeping device "online" for 15s). On failure, does NOT remove the device — `last_seen` ages out, web UI shows gray dot. Offline transitions logged as `[事件] 设备离线`.
+
+### Offline = last_seen > 15s ago
+Both terminal main loop and `/api/devices` use `(now - last_seen) > 15s` as the online/offline threshold. Offline devices stay in the list permanently; only manual removal deletes them.
+
+### Single-chunk receiver bug (FIXED)
+The original loop condition `get_max_contiguous_chunk() < total_chunks - 1` evaluates to `0 < 0` for single-chunk files, so the receive loop never executes, yet the empty file is committed as "complete" → MD5 mismatch. Now uses `while (chunk_count < meta.total_chunks)`.
+
+### FileChunkIO receiver init order
+Must `open()+ftruncate()` the `.tmp` file BEFORE constructing `FileChunkIO` (reads file size from disk). The transfer receiver handles this in `handle_receive()`.
+
+### TransferTask creation on receive
+`TransferReceiver::set_on_receive_start()` fires when the file header arrives. The callback creates a `TransferTask` with `is_sender=false` and `target.ip=sender_ip`, so the web UI shows received files with progress bars.
 
 ### Non-blocking connect with timeout
 `SignalingClient::connect_to()` uses: `set_nonblocking()` → `connect()` (expect `EINPROGRESS`) → `select()` with timeout → `getsockopt(SO_ERROR)` → `set_blocking()`.
 
-### Missing `EINPROGRESS` in `is_would_block()`
-`platform.cpp:is_would_block()` must include `EINPROGRESS` (Linux errno 115) alongside `EWOULDBLOCK`/`EAGAIN`. Non-blocking `connect()` returns `EINPROGRESS`, not `EWOULDBLOCK`.
+### `is_would_block()` must include `EINPROGRESS`
+`platform.cpp:is_would_block()` checks `EINPROGRESS` (Linux errno 115) alongside `EWOULDBLOCK`/`EAGAIN`.
 
-### Server accept loops use `select()`, not blocking `accept()`
-Both `SignalingServer` and `TransferReceiver` use `FD_SET` + `select()` with 200ms timeout so the loop can check `m_running` and exit on `stop()`. Blocking `accept()` cannot be reliably interrupted by `close()` on all platforms.
+### Handler threads: no `detach()`
+Both `SignalingServer` and `TransferReceiver` join handler threads in `stop()`. Never `detach()` — causes port leaks.
 
-### Handler thread management (no `detach()`)
-Both `SignalingServer` and `TransferReceiver` keep handler threads in `std::vector<std::thread>` and join them in `stop()`. Never use `detach()` — it creates zombie processes and port leaks.
+### SO_RCVTIMEO before `connect()`
+`TransferSender::send_file()` sets `SO_RCVTIMEO` (500ms) *before* `connect()`. Setting it after has no effect on some Linux kernels.
 
-### Socket receive timeouts
-`SignalingServer::handle_client()` sets `SO_RCVTIMEO` (5s) on each accepted client socket, preventing stuck handler threads if the client disconnects mid-protocol.
+### Protocol wire format
+| Marker | Description | Payload |
+|--------|-------------|---------|
+| `'J'` | JSON message | 4-byte BE length + JSON |
+| `'C'` | Binary chunk | 16-byte header + variable body |
 
-### FileChunkIO receiver init
-Must create+ftruncate the `.tmp` file BEFORE constructing `FileChunkIO` (which reads file size from disk to compute `total_chunks`). The class does not support re-init after construction.
+Signaling channel (port 8889) uses JSON only (no marker, short-connection). Data channel (port 8890) uses the 1-byte marker prefix.
 
-### Self-exclusion in discovery
-Both `DeviceDiscovery::recv_loop()` and `DeviceManager::update_device()` check `device.id == m_device_id` and skip. This double guard ensures the local device never appears in the online list even through edge cases.
+### Message types
+`DEVICE_BROADCAST`, `DEVICE_OFFLINE` (UDP multicast), `DEVICE_HELLO` (TCP mutual discovery), `FILE_REQUEST`, `FILE_RESPONSE`, `TEXT_MESSAGE` (chat), plus transfer control/ack types. Defined in `protocol.h:MsgType`.
 
-### Callback-safe unlocking
-`DeviceManager::update_device()` and `remove_device()` use `std::unique_lock` so they can `lock.unlock()` before invoking callbacks, preventing deadlocks from re-entrant access.
+### HTTP server body reading
+`handle_client()` reads until `\r\n\r\n`, then extracts `Content-Length` and continues reading until full body received. 10s `SO_RCVTIMEO`. Maximum 65536-byte header block.
 
-### SO_RCVTIMEO must be set BEFORE `connect()`
-`TransferSender::send_file()` sets `SO_RCVTIMEO` (500ms) on the socket *before* `connect()`. Setting it after the connection is established has no effect on some Linux kernels. The sender uses this for blocking `recv()` on ACKs instead of `select()` + non-blocking socket, which avoids select-to-recv race conditions on localhost.
+### Base64 file upload
+Frontend uses `FileReader.readAsDataURL()`, strips the `data:...;base64,` prefix, `encodeURIComponent()`s the base64, and sends as URL-encoded form field `filedata`. Server `url_decode()`s and `base64_decode()`s, writes to `/tmp/p2p_send/<filename>`, starts `TransferSender`.
 
-### Sender ACK timeout for small files
-The sender polls for ACK after sending all chunks. For files with few chunks (≤8), the receiver may not send intermediate ACKs, so the sender waits up to `no_ack_cycles > 5` iterations × ~2s (SO_RCVTIMEO + 50ms sleep) ≈ 10s before force-completing. A 50ms `sleep_for` is inserted between chunk sends and ACK reads to give the receiver time to process.
+### Web UI is WeChat-style chat
+Left sidebar: device list (avatars, green/gray status dots). Right: message bubbles (blue=sent, gray=received). File bubbles show progress bars + done status. Text polling every 2s via `POST /api/messages/poll`. Transfer polling every 1s via `GET /api/transfers`.
 
-### Web frontend static files
-The HTTP server serves files from `src/web/static/` (relative to working directory). The `index.html` expects `style.css` and `app.js` in the same directory. CORS headers are set to `*` for browser-based API access. The server is minimal — no HTTPS, no compression, no HTTP/2.
+### Auto-open browser
+`system("xdg-open http://localhost:8891 2>/dev/null &")` after HTTP server starts.
 
-### TransferManager bridges services
-`TransferManager` owns the task map (thread-safe). `TransferReceiver` calls `mark_complete()` on finish. The REST API reads tasks from `TransferManager` for the web UI. New transfer tasks should be created via `TransferManager::add_task()` so they appear in the web transfer list.
+### `json` vs `nlohmann::json`
+`protocol.h` defines `using json = nlohmann::json`. New headers should use fully qualified `nlohmann::json` to avoid include-order dependency.
 
 ## Git Conventions
 - Branch: `p2p`
 - Commit prefix: `feat:`, `fix:`, `init:` (Chinese descriptions)
-- Each completed module phase gets its own commit after unit verification passes
+- Each module phase gets its own commit after unit tests pass
