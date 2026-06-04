@@ -50,10 +50,14 @@ bool SignalingClient::test_connect(const std::string& target_ip,
             return false;
         }
     } else {
-        // 立即连接成功, 发送 DEVICE_HELLO 后关闭
+        // 立即连接成功, 发送 DEVICE_HELLO
         NetworkUtils::set_blocking(sock);
         json hello = Protocol::build_device_hello(my_id, my_name, my_ip, my_port);
         Protocol::send_json_message(sock, hello);
+        // 优雅关闭确保数据被对方收到
+        shutdown(sock, SHUT_WR);
+        char dummy[64];
+        while (recv(sock, dummy, sizeof(dummy), 0) > 0) {}
         CLOSE_SOCKET(sock);
         return true;
     }
@@ -82,6 +86,10 @@ bool SignalingClient::test_connect(const std::string& target_ip,
         NetworkUtils::set_blocking(sock);
         json hello = Protocol::build_device_hello(my_id, my_name, my_ip, my_port);
         Protocol::send_json_message(sock, hello);
+        // 优雅关闭确保数据被对方收到
+        shutdown(sock, SHUT_WR);
+        char dummy[64];
+        while (recv(sock, dummy, sizeof(dummy), 0) > 0) {}
     }
 
     CLOSE_SOCKET(sock);

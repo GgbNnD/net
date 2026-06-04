@@ -11,6 +11,8 @@
 #include <iomanip>
 #include <fstream>
 #include <cstring>
+#include <set>
+#include <algorithm>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -543,7 +545,10 @@ bool init_signaling_service() {
         std::string remote_ip   = hello.value("ip", sender_ip);
         uint16_t    remote_port = hello.value("port", Defaults::SIGNALING_PORT);
 
-        // 检查是否已有该IP的设备, 有则更新而非新增
+        // 跳过本机IP
+        auto local_ips = NetworkUtils::get_local_ips();
+        if (std::find(local_ips.begin(), local_ips.end(), remote_ip) != local_ips.end()) return;
+
         std::string existing_id = g_device_manager->find_device_id_by_ip(remote_ip);
         if (!existing_id.empty()) {
             DeviceInfo update;
@@ -946,9 +951,14 @@ static constexpr const char* KNOWN_DEVICES_FILE = "known_devices.json";
 
 static void save_known_devices() {
     if (!g_device_manager) return;
+    auto local_ips = NetworkUtils::get_local_ips();
+    std::set<std::string> self_ips(local_ips.begin(), local_ips.end());
+
     json arr = json::array();
+    std::set<std::string> seen_ips;
     for (const auto& d : g_device_manager->get_online_devices()) {
-        if (!d.manual) continue;
+        if (!d.manual || self_ips.count(d.ip) || seen_ips.count(d.ip)) continue;
+        seen_ips.insert(d.ip);
         json entry;
         entry["id"]   = d.id;
         entry["name"] = d.name;
@@ -967,26 +977,37 @@ static void load_known_devices() {
     if (!g_device_manager) return;
     std::ifstream f(KNOWN_DEVICES_FILE);
     if (!f.is_open()) return;
+
+    // 获取本机所有IP, 加载时跳过
+    auto local_ips = NetworkUtils::get_local_ips();
+    std::set<std::string> self_ips(local_ips.begin(), local_ips.end());
+
     try {
         json arr = json::parse(f);
+        std::set<std::string> seen_ips;
         int loaded = 0;
         for (const auto& entry : arr) {
+            std::string ip = entry.value("ip", "");
+            if (ip.empty() || self_ips.count(ip) || seen_ips.count(ip)) continue;
+            seen_ips.insert(ip);
+
             DeviceInfo device;
             device.id         = entry.value("id", Utils::generate_uuid());
-            device.name       = entry.value("name", entry.value("ip", ""));
-            device.ip         = entry.value("ip", "");
+            device.name       = entry.value("name", ip);
+            device.ip         = ip;
             device.port       = entry.value("port", Defaults::SIGNALING_PORT);
             device.last_seen  = std::chrono::steady_clock::now();
             device.first_seen = std::chrono::steady_clock::now();
             device.manual     = true;
-            if (!device.ip.empty()) {
-                g_device_manager->update_device(device);
-                ++loaded;
-            }
+            g_device_manager->update_device(device);
+            ++loaded;
         }
+
         if (loaded > 0) {
             std::cout << "[持久化] 加载了 " << loaded << " 个已知设备" << std::endl;
         }
+        // 保存一份干净的副本 (去重后)
+        if (loaded != (int)arr.size()) save_known_devices();
     } catch (...) {
         std::cerr << "[持久化] 读取失败, 忽略" << std::endl;
     }
@@ -1035,10 +1056,12 @@ int main() {
 
     // 启动手动添加设备的 TCP 探活线程 (互相发现)
     g_peer_probe_thread = std::thread([]() {
+        std::set<std::string> was_online;  // 上一轮在线的设备ID
         while (g_running) {
             std::this_thread::sleep_for(std::chrono::seconds(5));
 
             if (!g_device_manager) continue;
+            std::set<std::string> now_online;
             auto devices = g_device_manager->get_online_devices();
             for (const auto& d : devices) {
                 if (!d.manual) continue;
@@ -1049,12 +1072,26 @@ int main() {
                     g_discovery ? g_discovery->get_local_ip() : "127.0.0.1",
                     Defaults::SIGNALING_PORT, 1000);
                 if (alive) {
+                    now_online.insert(d.id);
                     DeviceInfo updated = d;
                     updated.last_seen = std::chrono::steady_clock::now();
                     g_device_manager->update_device(updated);
                 }
-                // 离线不移除, last_seen 不更新, 前端15秒后自动变灰
             }
+            // 打印离线通知
+            for (const auto& id : was_online) {
+                if (!now_online.count(id)) {
+                    auto all = g_device_manager->get_online_devices();
+                    for (const auto& d : all) {
+                        if (d.id == id && d.manual) {
+                            std::cout << "[事件] 设备离线: " << d.name
+                                      << " (" << d.ip << ":" << d.port << ")" << std::endl;
+                            break;
+                        }
+                    }
+                }
+            }
+            was_online = std::move(now_online);
         }
     });
 
