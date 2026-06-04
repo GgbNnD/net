@@ -22,6 +22,7 @@ namespace MsgType {
     constexpr const char* DEVICE_BROADCAST = "DEVICE_BROADCAST";  // 设备上线广播
     constexpr const char* DEVICE_OFFLINE   = "DEVICE_OFFLINE";    // 设备离线通知
     constexpr const char* DEVICE_HELLO     = "DEVICE_HELLO";      // TCP探活握手 (互相发现)
+    constexpr const char* TEXT_MESSAGE     = "TEXT_MESSAGE";      // 聊天文本消息
 
     // === 信令协商阶段 ===
     constexpr const char* FILE_REQUEST     = "FILE_REQUEST";      // 文件传输请求
@@ -90,6 +91,11 @@ json build_device_hello(const std::string& device_id,
                          const std::string& device_name,
                          const std::string& ip,
                          uint16_t port);
+
+/**
+ * @brief 构建文本聊天消息
+ */
+json build_text_message(const std::string& text);
 
 /**
  * @brief 构建文件传输请求消息 (TCP信令通道)

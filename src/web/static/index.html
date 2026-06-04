@@ -2,52 +2,30 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>P2P 局域网文件传输</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>P2P 文件传输</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="app">
-  <!-- 顶栏 -->
-  <header>
-    <h1>P2P 文件传输</h1>
-    <span id="device-info">本机: --</span>
-  </header>
-
-  <div id="main">
-    <!-- 左侧: 在线设备列表 -->
-    <aside id="sidebar">
-      <h2>在线设备 <span id="online-count">0</span></h2>
-      <ul id="device-list"><li class="empty">扫描中...</li></ul>
-      <div id="manual-add">
-        <h3>手动添加设备</h3>
-        <input type="text" id="peer-ip" placeholder="输入IP地址, 如 10.162.181.2" />
-        <input type="text" id="peer-name" placeholder="设备名称 (可选)" />
-        <button id="add-peer-btn">添加</button>
-      </div>
-    </aside>
-
-    <!-- 中央: 文件传输区 -->
-    <section id="content">
-      <h2>发送文件</h2>
-      <div id="send-area">
-        <div class="form-group">
-          <label>选择目标设备:</label>
-          <select id="target-device"><option value="">--- 请先勾选设备 ---</option></select>
-        </div>
-        <div class="form-group">
-          <label>选择文件:</label>
-          <input type="file" id="file-input" multiple />
-        </div>
-        <button id="send-btn" disabled>发送</button>
-      </div>
-
-      <h2>传输队列</h2>
-      <div id="transfer-list"><p class="empty">暂无传输任务</p></div>
-    </section>
-  </div>
+  <aside id="sidebar">
+    <h2>设备 <span id="online-count">(0)</span></h2>
+    <ul id="device-list"><li class="empty">扫描中...</li></ul>
+    <div id="manual-add">
+      <input type="text" id="peer-ip" placeholder="输入IP添加设备" />
+      <div><button id="add-peer-btn">添加</button></div>
+    </div>
+  </aside>
+  <section id="main">
+    <div id="chat-header">选择一个设备开始聊天</div>
+    <div id="chat-area"><div class="empty-chat">请从左侧选择设备</div></div>
+    <div id="input-area">
+      <label id="file-btn" title="发送文件">+<input type="file" id="file-input" multiple /></label>
+      <textarea id="msg-input" placeholder="输入消息或选择文件..." rows="1"></textarea>
+      <button id="send-btn" disabled>发送</button>
+    </div>
+  </section>
 </div>
-
 <script src="app.js"></script>
 </body>
 </html>

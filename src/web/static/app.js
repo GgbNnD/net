@@ -1,255 +1,148 @@
-// P2P 文件传输 Web 界面 - 前端逻辑
-(function() {
-  'use strict';
+(function(){'use strict';
+const API='/api';
+var devs=[],msg={},selected='',selfName='';
 
-  const API = '/api';
+function init(){
+  refreshDevices();setInterval(refreshDevices,3000);
+  refreshTransfers();setInterval(refreshTransfers,2000);
+  document.getElementById('send-btn').onclick=sendMessage;
+  document.getElementById('add-peer-btn').onclick=addPeer;
+  document.getElementById('file-input').onchange=onFileSelected;
+  var ta=document.getElementById('msg-input');
+  ta.onkeydown=function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();}};
+  ta.oninput=function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px';};
+}
 
-  // --- 状态 ---
-  let selectedDeviceIp = '';
-  let selectedDevicePort = 0;
-  const transfers = {};
+async function refreshDevices(){
+  try{var r=await fetch(API+'/devices'),d=await r.json();devs=d.devices||[];selfName=d.self_name||'';renderDevices();}
+  catch(e){}
+}
 
-  // --- 初始化 ---
-  function init() {
-    refreshDevices();
-    setInterval(refreshDevices, 3000);
-    setInterval(refreshTransfers, 2000);
+function renderDevices(){
+  var list=document.getElementById('device-list'),count=document.getElementById('online-count');
+  count.textContent='('+devs.length+')';
+  if(!devs.length){list.innerHTML='<li class="empty">暂无在线设备</li>';return}
+  list.innerHTML='';
+  devs.forEach(function(d){
+    var li=document.createElement('li');li.className='dev';
+    if(d.id===selected)li.classList.add('selected');
+    var av=d.name[0]||'?';
+    li.innerHTML='<div class="avatar">'+av+'</div><div class="info"><div class="name">'+d.name+'</div><div class="ip">'+d.ip+'</div></div><span class="status online"></span>';
+    li.onclick=function(){selectDevice(d.id,d.name,d.ip);};
+    list.appendChild(li);
+  });
+}
 
-    document.getElementById('file-input').addEventListener('change', onFilesSelected);
-    document.getElementById('send-btn').addEventListener('click', onSendClick);
-    document.getElementById('add-peer-btn').addEventListener('click', onAddPeer);
-  }
+function selectDevice(id,name,ip){
+  selected=id;
+  document.getElementById('chat-header').innerHTML=name+' <small style="color:#888;font-weight:400">('+ip+')</small> <button class="delete-btn" onclick="event.stopPropagation();removePeer(\''+ip+'\')">删除</button>';
+  document.getElementById('send-btn').disabled=false;
+  document.querySelectorAll('#device-list .dev').forEach(function(el){el.classList.remove('selected')});
+  renderMessages();
+  renderDevices();
+}
 
-  // --- 设备列表 ---
-  async function refreshDevices() {
-    try {
-      const resp = await fetch(API + '/devices');
-      const data = await resp.json();
-      renderDevices(data.devices || []);
-      document.getElementById('device-info').textContent =
-        '本机: ' + (data.self_name || '--');
-    } catch(e) {
-      console.error('Failed to fetch devices:', e);
+function renderMessages(){
+  var area=document.getElementById('chat-area');
+  var msgs=msg[selected]||[];
+  if(!msgs.length){area.innerHTML='<div class="empty-chat">暂无消息，发送一个吧</div>';return}
+  area.innerHTML='';
+  msgs.forEach(function(m){
+    var div=document.createElement('div');div.className='msg '+m.cls;
+    var txt=m.text||'';
+    if(m.file){
+      txt+='<div class="file-info">'+m.file.name+' ('+formatSize(m.file.size)+')';
+      if(m.file.done===true)txt+=' <span class="ok">✓ 已完成</span>';
+      else if(m.file.done===false)txt+=' <span class="err">✗ 失败</span>';
+      else txt+=' <span>...传输中</span>';
+      txt+='</div>';
     }
-  }
+    div.innerHTML=txt;
+    area.appendChild(div);
+  });
+  area.scrollTop=area.scrollHeight;
+}
 
-  function renderDevices(devices) {
-    const list = document.getElementById('device-list');
-    const count = document.getElementById('online-count');
-    const select = document.getElementById('target-device');
+function addMsg(deviceId,cls,text,fileInfo){
+  if(!msg[deviceId])msg[deviceId]=[];
+  msg[deviceId].push({cls:cls,text:text,file:fileInfo,time:Date.now()});
+  if(deviceId===selected)renderMessages();
+}
 
-    count.textContent = '(' + devices.length + ')';
+function formatSize(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(1)+' KB';if(b<1073741824)return(b/1048576).toFixed(1)+' MB';return(b/1073741824).toFixed(1)+' GB';}
 
-    if (devices.length === 0) {
-      list.innerHTML = '<li class="empty">暂无在线设备</li>';
-      select.innerHTML = '<option value="">--- 请先添加设备 ---</option>';
-      return;
-    }
+async function sendMessage(){
+  var ta=document.getElementById('msg-input'),txt=ta.value.trim();
+  if(!txt||!selected)return;
+  var dev=devs.find(function(d){return d.id===selected});
+  if(!dev)return;
+  try{
+    await fetch(API+'/message',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'target_ip='+encodeURIComponent(dev.ip)+'&target_port='+(dev.port||8889)+'&text='+encodeURIComponent(txt)});
+    addMsg(selected,'sent',txt);
+    ta.value='';ta.style.height='auto';
+  }catch(e){}
+}
 
-    list.innerHTML = '';
-    select.innerHTML = '<option value="">--- 选择设备 ---</option>';
+async function onFileSelected(){
+  var f=document.getElementById('file-input').files[0];
+  if(!f||!selected)return;
+  var dev=devs.find(function(d){return d.id===selected});
+  if(!dev)return;
+  addMsg(selected,'sent','发送文件: '+f.name,{name:f.name,size:f.size});
+  var reader=new FileReader();
+  reader.onload=async function(){
+    var b64=reader.result.split(',')[1];
+    try{
+      var r=await fetch(API+'/transfer',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'target_ip='+encodeURIComponent(dev.ip)+'&target_port='+(dev.port||8889)+'&filename='+encodeURIComponent(f.name)+'&filedata='+encodeURIComponent(b64)});
+      var d=await r.json();
+      if(!d.success){updateLastFileMsg(selected,false);}
+    }catch(e){updateLastFileMsg(selected,false);}
+  };
+  reader.readAsDataURL(f);
+  document.getElementById('file-input').value='';
+}
 
-    devices.forEach(function(d) {
-      const li = document.createElement('li');
-      var removeHtml = '';
-      if (d.manual) {
-        removeHtml = ' <span class="remove-btn" data-ip="' + d.ip + '" title="移除">×</span>';
+function updateLastFileMsg(deviceId,done){
+  if(!msg[deviceId])return;
+  for(var i=msg[deviceId].length-1;i>=0;i--){if(msg[deviceId][i].file){msg[deviceId][i].file.done=done;break}}
+  if(deviceId===selected)renderMessages();
+}
+
+async function refreshTransfers(){
+  try{
+    var r=await fetch(API+'/transfers'),d=await r.json();
+    (d.transfers||[]).forEach(function(t){
+      var dev=devs.find(function(dd){return dd.ip===t.target_ip});
+      var did=dev?dev.id:'';
+      if(!did)return;
+      var existing=msg[did]||[];
+      var found=existing.find(function(m){return m.file&&m.file.fileId===t.file_id});
+      if(t.state==='COMPLETED'){
+        if(found){found.file.done=true;}
+      }else if(t.state==='TRANSFERRING'){
+        if(!found){
+          if(!msg[did])msg[did]=[];
+          msg[did].push({cls:'sent',text:'发送文件: '+t.filename,file:{name:t.filename,size:t.file_size,fileId:t.file_id}});
+        }
       }
-      li.innerHTML = '<span class="device-icon"></span>' + d.name + ' <small>(' + d.ip + ')</small>' + removeHtml;
-      // 点击设备主体选择设备
-      li.addEventListener('click', function(e) {
-        if (e.target.classList.contains('remove-btn')) return;
-        selectedDeviceIp = d.ip;
-        selectedDevicePort = d.port || 8889;
-        document.querySelectorAll('#device-list li').forEach(function(el) { el.classList.remove('selected'); });
-        li.classList.add('selected');
-        updateSendBtn();
-      });
-      // 点击移除按钮
-      var rmBtn = li.querySelector('.remove-btn');
-      if (rmBtn) {
-        rmBtn.addEventListener('click', function(e) {
-          e.stopPropagation();
-          removePeer(d.ip);
-        });
-      }
-      list.appendChild(li);
-
-      const opt = document.createElement('option');
-      opt.value = d.ip + ':' + (d.port || 8889);
-      opt.textContent = d.name + ' (' + d.ip + ')';
-      select.appendChild(opt);
     });
+    if(selected)renderMessages();
+  }catch(e){}
+}
 
-    select.onchange = function() {
-      const val = select.value;
-      if (val) {
-        const parts = val.split(':');
-        selectedDeviceIp = parts[0];
-        selectedDevicePort = parseInt(parts[1]) || 8889;
-      } else {
-        selectedDeviceIp = '';
-        selectedDevicePort = 0;
-      }
-      updateSendBtn();
-    };
-  }
+async function addPeer(){
+  var ip=document.getElementById('peer-ip').value.trim();if(!ip)return;
+  await fetch(API+'/peers/add',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'ip='+encodeURIComponent(ip)+'&name='+encodeURIComponent(ip)});
+  document.getElementById('peer-ip').value='';
+  refreshDevices();
+}
 
-  function updateSendBtn() {
-    const btn = document.getElementById('send-btn');
-    const file = document.getElementById('file-input');
-    btn.disabled = !(selectedDeviceIp && file.files.length > 0);
-  }
+async function removePeer(ip){
+  await fetch(API+'/peers/remove',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'ip='+encodeURIComponent(ip)});
+  selected='';document.getElementById('chat-header').textContent='选择一个设备开始聊天';
+  document.getElementById('chat-area').innerHTML='<div class="empty-chat">请从左侧选择设备</div>';
+  document.getElementById('send-btn').disabled=true;
+  refreshDevices();
+}
 
-  function onFilesSelected() { updateSendBtn(); }
-
-  // --- 手动添加设备 ---
-  async function onAddPeer() {
-    const ipInput = document.getElementById('peer-ip');
-    const nameInput = document.getElementById('peer-name');
-    const ip = ipInput.value.trim();
-    const name = nameInput.value.trim() || ip;
-
-    if (!ip) return;
-
-    try {
-      const body = 'ip=' + encodeURIComponent(ip) + '&name=' + encodeURIComponent(name);
-      const resp = await fetch(API + '/peers/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body
-      });
-      const data = await resp.json();
-      if (data.success) {
-        ipInput.value = '';
-        nameInput.value = '';
-        refreshDevices();
-      }
-    } catch(e) {
-      console.error('Failed to add peer:', e);
-    }
-  }
-
-  async function removePeer(ip) {
-    try {
-      const body = 'ip=' + encodeURIComponent(ip);
-      await fetch(API + '/peers/remove', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body
-      });
-      refreshDevices();
-    } catch(e) {
-      console.error('Failed to remove peer:', e);
-    }
-  }
-
-  // --- 发送文件 ---
-  async function onSendClick() {
-    const fileInput = document.getElementById('file-input');
-    if (!fileInput.files.length || !selectedDeviceIp) return;
-
-    const file = fileInput.files[0];
-    const btn = document.getElementById('send-btn');
-    btn.disabled = true;
-    btn.textContent = '读取中...';
-
-    // 读取文件并编码为 base64
-    const reader = new FileReader();
-    reader.onload = async function() {
-      // reader.result 格式: "data:application/octet-stream;base64,xxxxx"
-      const base64 = reader.result.split(',')[1];
-
-      const body = 'target_ip=' + encodeURIComponent(selectedDeviceIp) +
-                   '&target_port=' + String(selectedDevicePort) +
-                   '&filename=' + encodeURIComponent(file.name) +
-                   '&filedata=' + encodeURIComponent(base64);
-
-      try {
-        const resp = await fetch(API + '/transfer', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: body
-        });
-        const data = await resp.json();
-        if (data.success) {
-          addTransferItem(data.file_id, file.name, file.size, 'TRANSFERRING');
-          fileInput.value = '';
-        } else {
-          alert('发送失败: ' + (data.error || '未知错误'));
-        }
-      } catch(e) {
-        console.error('Failed to start transfer:', e);
-        alert('发送失败: ' + e.message);
-      }
-
-      btn.disabled = false;
-      btn.textContent = '发送';
-    };
-
-    reader.onerror = function() {
-      alert('文件读取失败');
-      btn.disabled = false;
-      btn.textContent = '发送';
-    };
-
-    reader.readAsDataURL(file);
-  }
-
-  function addTransferItem(fileId, name, size, state) {
-    const list = document.getElementById('transfer-list');
-    if (list.querySelector('.empty')) list.innerHTML = '';
-
-    const div = document.createElement('div');
-    div.className = 'transfer-item';
-    div.id = 'transfer-' + fileId;
-    div.innerHTML =
-      '<div class="name">' + name + '</div>' +
-      '<div class="size">' + formatSize(size) + '</div>' +
-      '<div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>' +
-      '<div class="status">准备传输...</div>';
-    list.prepend(div);
-
-    transfers[fileId] = { name, size };
-  }
-
-  async function refreshTransfers() {
-    try {
-      const resp = await fetch(API + '/transfers');
-      const data = await resp.json();
-      (data.transfers || []).forEach(function(t) {
-        const el = document.getElementById('transfer-' + t.file_id);
-        if (!el) {
-          addTransferItem(t.file_id, t.filename, t.file_size, t.state);
-          return;
-        }
-        const fill = el.querySelector('.progress-fill');
-        const status = el.querySelector('.status');
-        const pct = t.total_chunks > 0 ? Math.round(t.progress_chunk / t.total_chunks * 100) : 0;
-        fill.style.width = pct + '%';
-        if (t.state === 'COMPLETED') {
-          fill.classList.add('done');
-          status.textContent = '已完成';
-        } else if (t.state === 'TRANSFERRING') {
-          status.textContent = pct + '% · ' + formatSpeed(t.speed || 0);
-        } else {
-          status.textContent = t.state;
-        }
-      });
-    } catch(e) {}
-  }
-
-  function formatSize(bytes) {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
-    if (bytes < 1073741824) return (bytes/1048576).toFixed(1) + ' MB';
-    return (bytes/1073741824).toFixed(1) + ' GB';
-  }
-
-  function formatSpeed(bps) {
-    if (bps <= 0) return '0 B/s';
-    return formatSize(bps) + '/s';
-  }
-
-  init();
-})();
+init();})();

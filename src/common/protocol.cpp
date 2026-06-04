@@ -49,6 +49,13 @@ json build_device_hello(const std::string& device_id,
     return msg;
 }
 
+json build_text_message(const std::string& text) {
+    json msg;
+    msg["type"] = MsgType::TEXT_MESSAGE;
+    msg["text"] = text;
+    return msg;
+}
+
 json build_file_request(const std::string& file_id,
                          const std::string& filename,
                          uint64_t file_size,

@@ -262,6 +262,11 @@ void SignalingServer::handle_client(SOCKET_FD client_sock, const std::string& cl
         if (m_device_hello_cb) {
             m_device_hello_cb(msg, client_ip);
         }
+    } else if (type == MsgType::TEXT_MESSAGE) {
+        // 聊天文本消息: 转发给控制消息回调
+        if (m_control_msg_cb) {
+            m_control_msg_cb(msg, client_ip);
+        }
     } else if (type == MsgType::TRANSFER_CANCEL ||
                type == MsgType::TRANSFER_PAUSE  ||
                type == MsgType::TRANSFER_RESUME ||

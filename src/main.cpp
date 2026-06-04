@@ -603,6 +603,7 @@ bool init_http_service() {
                 item["total_chunks"] = t.meta.total_chunks;
                 item["progress_chunk"] = t.progress_chunk;
                 item["speed"]        = t.speed;
+                item["target_ip"]    = t.target.ip;
                 item["state"]        = (t.state == TransferState::TRANSFERRING ? "TRANSFERRING" :
                                         t.state == TransferState::COMPLETED ? "COMPLETED" :
                                         t.state == TransferState::PAUSED ? "PAUSED" : "IDLE");
@@ -694,6 +695,37 @@ bool init_http_service() {
             }
         }
 
+        resp["success"] = true;
+        return resp.dump();
+    });
+
+    // POST /api/message - 发送聊天文本消息
+    g_http_server->on_post("/api/message", [](const std::string& body, const std::map<std::string, std::string>&) -> std::string {
+        json resp;
+        std::string target_ip;
+        uint16_t target_port = Defaults::SIGNALING_PORT;
+        std::string text;
+
+        auto pairs = Utils::split_string(body, '&');
+        for (const auto& p : pairs) {
+            auto eq = p.find('=');
+            if (eq != std::string::npos) {
+                std::string key = Utils::url_decode(p.substr(0, eq));
+                std::string val = Utils::url_decode(p.substr(eq + 1));
+                if (key == "target_ip") target_ip = val;
+                else if (key == "target_port") target_port = static_cast<uint16_t>(std::stoul(val));
+                else if (key == "text") text = val;
+            }
+        }
+
+        SignalingClient sig_client;
+        json request = Protocol::build_text_message(text);
+        json response;
+        if (!sig_client.send_request(target_ip, target_port, request, response)) {
+            resp["success"] = false;
+            resp["error"] = "发送失败";
+            return resp.dump();
+        }
         resp["success"] = true;
         return resp.dump();
     });
@@ -964,7 +996,10 @@ int main() {
     if (!init_http_service()) return 1;
 
     std::cout << "\n[系统] 所有服务启动完成, 按 Ctrl+C 退出" << std::endl;
-    std::cout << "[系统] Web界面: http://localhost:" << Defaults::HTTP_PORT << std::endl;
+    // Auto-open browser
+    std::string url = "http://localhost:" + std::to_string(Defaults::HTTP_PORT);
+    system(("xdg-open " + url + " 2>/dev/null &").c_str());
+    std::cout << "[系统] Web界面: " << url << std::endl;
     std::cout << "[系统] 信令端口: " << Defaults::SIGNALING_PORT
               << " | 发现端口: " << Defaults::DISCOVERY_PORT
               << " | 传输端口: " << Defaults::TRANSFER_PORT << std::endl;
