@@ -194,8 +194,8 @@ bool DeviceDiscovery::create_socket() {
                    (const char*)&mreq, sizeof(mreq));
     }
 
-    // 5. 设置组播TTL (生存时间) = 1, 限制在本地网络内, 不路由到外网
-    int ttl = 1;
+    // 5. 设置组播TTL = 4 (跨路由器场景需要 > 1)
+    int ttl = 4;
     if (setsockopt(m_socket, IPPROTO_IP, IP_MULTICAST_TTL,
                    (const char*)&ttl, sizeof(ttl)) < 0) {
         std::cerr << "[发现] 警告: 设置组播TTL失败" << std::endl;
