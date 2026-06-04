@@ -1169,13 +1169,20 @@ int main() {
 
         if (g_device_manager) {
             auto devices = g_device_manager->get_online_devices();
-            if (!devices.empty()) {
-                std::cout << "\n[在线设备] (" << devices.size() << " 台):" << std::endl;
+            // 过滤出真正在线的设备 (15秒内有探活)
+            std::vector<DeviceInfo> online_devs;
+            auto now = std::chrono::steady_clock::now();
+            for (const auto& d : devices) {
+                auto age = std::chrono::duration_cast<std::chrono::seconds>(now - d.last_seen).count();
+                if (age < 15) online_devs.push_back(d);
+            }
+            if (!online_devs.empty()) {
+                std::cout << "\n[在线设备] (" << online_devs.size() << " 台):" << std::endl;
                 std::cout << "  " << std::left << std::setw(24) << "设备名称"
                           << std::setw(18) << "IP地址"
                           << std::setw(8) << "端口" << std::endl;
                 std::cout << "  " << std::string(50, '-') << std::endl;
-                for (const auto& d : devices) {
+                for (const auto& d : online_devs) {
                     std::cout << "  " << std::left << std::setw(24) << d.name
                               << std::setw(18) << d.ip
                               << std::setw(8) << d.port << std::endl;
