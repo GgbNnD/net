@@ -28,6 +28,15 @@ using ReceiveCompleteCallback = std::function<void(const std::string& file_id,
                                                     bool success)>;
 
 /**
+ * @brief 接收开始回调 (收到文件头时触发, 用于创建传输任务)
+ */
+using ReceiveStartCallback = std::function<void(const std::string& file_id,
+                                                  const std::string& filename,
+                                                  uint64_t file_size,
+                                                  uint32_t total_chunks,
+                                                  const std::string& sender_ip)>;
+
+/**
  * @class TransferReceiver
  * @brief 文件传输接收方
  *
@@ -71,6 +80,11 @@ public:
     void set_on_receive_complete(ReceiveCompleteCallback callback);
 
     /**
+     * @brief 设置接收开始回调 (收到文件头时触发)
+     */
+    void set_on_receive_start(ReceiveStartCallback callback);
+
+    /**
      * @brief 获取保存接收文件的目录
      */
     void set_save_directory(const std::string& dir) { m_save_dir = dir; }
@@ -85,6 +99,7 @@ private:
     std::mutex m_handler_mutex;
 
     ReceiveCompleteCallback m_complete_cb;  // 完成回调
+    ReceiveStartCallback    m_start_cb;     // 开始回调
 
     /**
      * @brief 创建TCP监听Socket
@@ -106,7 +121,7 @@ private:
      * 3. 循环接收分片, 发送ACK
      * 4. 完成后验证+
      */
-    void handle_receive(SOCKET_FD client_sock);
+    void handle_receive(SOCKET_FD client_sock, const std::string& sender_ip);
 
     /**
      * @brief 接收文件头信息

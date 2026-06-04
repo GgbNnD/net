@@ -72,6 +72,10 @@ void TransferReceiver::set_on_receive_complete(ReceiveCompleteCallback callback)
     m_complete_cb = std::move(callback);
 }
 
+void TransferReceiver::set_on_receive_start(ReceiveStartCallback callback) {
+    m_start_cb = std::move(callback);
+}
+
 // ----------------------------------------------------------
 // 创建监听Socket
 // ----------------------------------------------------------
@@ -137,11 +141,13 @@ void TransferReceiver::accept_loop() {
         char ip_str[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &client_addr.sin_addr, ip_str, sizeof(ip_str));
 
-        std::cout << "[接收] 发送方已连接: " << ip_str << std::endl;
+        std::string sender_ip(ip_str);
+
+        std::cout << "[接收] 发送方已连接: " << sender_ip << std::endl;
 
         // 创建处理线程
-        std::thread handler([this, client_sock]() {
-            handle_receive(client_sock);
+        std::thread handler([this, client_sock, sender_ip]() {
+            handle_receive(client_sock, sender_ip);
         });
 
         // 清理已完成线程并添加新线程
@@ -162,7 +168,7 @@ void TransferReceiver::accept_loop() {
 // ----------------------------------------------------------
 // 处理单个接收任务
 // ----------------------------------------------------------
-void TransferReceiver::handle_receive(SOCKET_FD client_sock) {
+void TransferReceiver::handle_receive(SOCKET_FD client_sock, const std::string& sender_ip) {
     // 1. 接收文件头
     FileMeta meta;
     if (!recv_file_header(client_sock, meta)) {
@@ -174,6 +180,12 @@ void TransferReceiver::handle_receive(SOCKET_FD client_sock) {
     std::cout << "[接收] 接收文件: " << meta.filename
               << " (" << Utils::format_file_size(meta.file_size) << ")"
               << ", 分片: " << meta.total_chunks << std::endl;
+
+    // 通知上层开始接收 (创建 TransferTask)
+    if (m_start_cb) {
+        m_start_cb(meta.file_id, meta.filename, meta.file_size,
+                   meta.total_chunks, sender_ip);
+    }
 
     // 2. 初始化文件I/O
     std::string save_path = m_save_dir + "/" + meta.filename;

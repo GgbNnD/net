@@ -627,6 +627,7 @@ bool init_http_service() {
                 item["progress_chunk"] = t.progress_chunk;
                 item["speed"]        = t.speed;
                 item["target_ip"]    = t.target.ip;
+                item["is_sender"]    = t.is_sender;
                 item["state"]        = (t.state == TransferState::TRANSFERRING ? "TRANSFERRING" :
                                         t.state == TransferState::COMPLETED ? "COMPLETED" :
                                         t.state == TransferState::PAUSED ? "PAUSED" : "IDLE");
@@ -923,6 +924,27 @@ bool init_transfer_service() {
     g_transfer_receiver = std::make_unique<TransferReceiver>(Defaults::TRANSFER_PORT);
     g_transfer_receiver->set_save_directory("./received_files");
     g_transfer_manager->set_receiver(g_transfer_receiver.get());
+
+    // 接收开始回调: 创建 TransferTask 记录
+    g_transfer_receiver->set_on_receive_start([](const std::string& file_id,
+                                                   const std::string& filename,
+                                                   uint64_t file_size,
+                                                   uint32_t total_chunks,
+                                                   const std::string& sender_ip) {
+        if (!g_transfer_manager) return;
+        TransferTask task;
+        task.meta.file_id      = file_id;
+        task.meta.filename     = filename;
+        task.meta.file_size    = file_size;
+        task.meta.chunk_size   = Defaults::CHUNK_SIZE;
+        task.meta.total_chunks = total_chunks;
+        task.target.ip         = sender_ip;
+        task.target.port       = Defaults::TRANSFER_PORT;
+        task.state             = TransferState::TRANSFERRING;
+        task.is_sender         = false;
+        g_transfer_manager->add_task(task);
+    });
+
     g_transfer_receiver->set_on_receive_complete([](const std::string& file_id,
                                                       const std::string& file_path,
                                                       bool success) {

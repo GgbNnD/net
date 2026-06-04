@@ -4,7 +4,7 @@ var devs=[],msg={},selected='',selfName='';
 
 function init(){
   refreshDevices();setInterval(refreshDevices,3000);
-  refreshTransfers();setInterval(refreshTransfers,2000);
+  refreshTransfers();setInterval(refreshTransfers,1000);
   document.getElementById('send-btn').onclick=sendMessage;
   document.getElementById('add-peer-btn').onclick=addPeer;
   document.getElementById('file-input').onchange=onFileSelected;
@@ -50,25 +50,39 @@ function renderMessages(){
   area.innerHTML='';
   msgs.forEach(function(m){
     var div=document.createElement('div');div.className='msg '+m.cls;
-    var txt=m.text||'';
+    var h='';
+    if(m.text)h+=m.text;
     if(m.file){
-      txt+='<div class="file-info">'+m.file.name+' ('+formatSize(m.file.size)+')';
-      if(m.file.done===true)txt+=' <span class="ok">✓ 已完成</span>';
-      else if(m.file.done===false)txt+=' <span class="err">✗ 失败</span>';
-      else txt+=' <span>...传输中</span>';
-      txt+='</div>';
+      h+='<div style="margin-top:6px">';
+      h+='<div style="font-size:13px;font-weight:600">'+m.file.name+'</div>';
+      h+='<div style="font-size:11px;opacity:0.7;margin-top:2px">'+formatSize(m.file.size)+'</div>';
+      if(m.file.progress!==undefined&&m.file.done!==true){
+        var pct=m.file.progress||0;
+        h+='<div style="background:rgba(255,255,255,.15);border-radius:4px;height:4px;margin-top:6px;overflow:hidden"><div style="background:#58a6ff;height:100%;width:'+pct+'%"></div></div>';
+        h+='<div style="font-size:11px;margin-top:3px">'+pct+'%</div>';
+      }
+      if(m.file.done===true)h+='<div style="font-size:11px;color:#4caf50;margin-top:3px">已完成</div>';
     }
-    div.innerHTML=txt;
+    div.innerHTML=h;
     area.appendChild(div);
   });
   area.scrollTop=area.scrollHeight;
 }
 
-function addMsg(deviceId,cls,text,fileInfo){
+function findOrCreateMsg(deviceId,fileId,cls,text,fileInfo){
   if(!msg[deviceId])msg[deviceId]=[];
-  msg[deviceId].push({cls:cls,text:text,file:fileInfo,time:Date.now()});
-  if(deviceId===selected)renderMessages();
+  var found=msg[deviceId].find(function(m){return m.file&&m.file.fileId===fileId});
+  if(found){
+    if(fileInfo.progress!==undefined)found.file.progress=fileInfo.progress;
+    if(fileInfo.done!==undefined)found.file.done=fileInfo.done;
+    return found;
+  }
+  var m={cls:cls,text:text,file:fileInfo,time:Date.now()};
+  msg[deviceId].push(m);
+  return m;
 }
+
+function addTextMsg(deviceId,cls,text){if(!msg[deviceId])msg[deviceId]=[];msg[deviceId].push({cls:cls,text:text,time:Date.now()});}
 
 function formatSize(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(1)+' KB';if(b<1073741824)return(b/1048576).toFixed(1)+' MB';return(b/1073741824).toFixed(1)+' GB';}
 
@@ -79,8 +93,8 @@ async function sendMessage(){
   if(!dev)return;
   try{
     await fetch(API+'/message',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'target_ip='+encodeURIComponent(dev.ip)+'&target_port='+(dev.port||8889)+'&text='+encodeURIComponent(txt)});
-    addMsg(selected,'sent',txt);
-    ta.value='';ta.style.height='auto';
+    addTextMsg(selected,'sent',txt);
+    ta.value='';ta.style.height='auto';renderMessages();
   }catch(e){}
 }
 
@@ -89,46 +103,46 @@ async function onFileSelected(){
   if(!f||!selected)return;
   var dev=devs.find(function(d){return d.id===selected});
   if(!dev)return;
-  addMsg(selected,'sent','发送文件: '+f.name,{name:f.name,size:f.size});
   var reader=new FileReader();
   reader.onload=async function(){
     var b64=reader.result.split(',')[1];
     try{
       var r=await fetch(API+'/transfer',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'target_ip='+encodeURIComponent(dev.ip)+'&target_port='+(dev.port||8889)+'&filename='+encodeURIComponent(f.name)+'&filedata='+encodeURIComponent(b64)});
       var d=await r.json();
-      if(!d.success){updateLastFileMsg(selected,false);}
-    }catch(e){updateLastFileMsg(selected,false);}
+    }catch(e){}
   };
   reader.readAsDataURL(f);
   document.getElementById('file-input').value='';
-}
-
-function updateLastFileMsg(deviceId,done){
-  if(!msg[deviceId])return;
-  for(var i=msg[deviceId].length-1;i>=0;i--){if(msg[deviceId][i].file){msg[deviceId][i].file.done=done;break}}
-  if(deviceId===selected)renderMessages();
 }
 
 async function refreshTransfers(){
   try{
     var r=await fetch(API+'/transfers'),d=await r.json();
     (d.transfers||[]).forEach(function(t){
-      var dev=devs.find(function(dd){return dd.ip===t.target_ip});
-      var did=dev?dev.id:'';
-      if(!did)return;
-      var existing=msg[did]||[];
-      var found=existing.find(function(m){return m.file&&m.file.fileId===t.file_id});
-      if(t.state==='COMPLETED'){
-        if(found){found.file.done=true;}
-      }else if(t.state==='TRANSFERRING'){
-        if(!found){
-          if(!msg[did])msg[did]=[];
-          msg[did].push({cls:'sent',text:'发送文件: '+t.filename,file:{name:t.filename,size:t.file_size,fileId:t.file_id}});
-        }
-      }
+      var isSender=t.is_sender;
+      var peerIp=t.target_ip;
+      var dev=devs.find(function(dd){return dd.ip===peerIp});
+      var did=dev?dev.id:('ip_'+peerIp);
+      if(!did||peerIp==='127.0.0.1')return;
+
+      var pct=t.total_chunks>0?Math.round(t.progress_chunk/t.total_chunks*100):0;
+      var isDone=t.state==='COMPLETED';
+      var cls=isSender?'sent':'received';
+      var label=isSender?('发送文件: '+t.filename):('收到文件: '+t.filename);
+
+      findOrCreateMsg(did,t.file_id,cls,label,{
+        name:t.filename,size:t.file_size,fileId:t.file_id,
+        progress:isDone?100:pct,done:isDone||undefined
+      });
     });
     if(selected)renderMessages();
   }catch(e){}
+}
+
+function findDeviceIdForReceiving(ip){
+  if(!ip||ip==='127.0.0.1')return null;
+  for(var i=0;i<devs.length;i++){if(devs[i].ip===ip)return devs[i].id}
+  return null;
 }
 
 async function addPeer(){
