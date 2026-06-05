@@ -316,21 +316,21 @@ void BtDiscovery::handle_interfaces_added(DBusMessage* msg) {
             DeviceInfo device = parse_device_from_properties(&props_array);
 
             // 跳过本机
-            if (device.ip == m_local_addr) {
+            if (device.addr == m_local_addr) {
                 break;
             }
 
-            if (!device.ip.empty()) {
+            if (!device.addr.empty()) {
                 // 更新或添加设备
                 bool is_new = false;
                 {
                     std::lock_guard<std::mutex> lock(m_cache_mutex);
-                    auto it = m_seen_devices.find(device.ip);
+                    auto it = m_seen_devices.find(device.addr);
                     if (it == m_seen_devices.end()) {
                         device.id = Utils::generate_uuid();
                         device.last_seen = std::chrono::steady_clock::now();
                         device.first_seen = std::chrono::steady_clock::now();
-                        m_seen_devices[device.ip] = device;
+                        m_seen_devices[device.addr] = device;
                         is_new = true;
                     } else {
                         it->second.last_seen = std::chrono::steady_clock::now();
@@ -341,7 +341,7 @@ void BtDiscovery::handle_interfaces_added(DBusMessage* msg) {
                 if (is_new && m_device_found_cb) {
                     // 使用缓存的 device (含完整信息)
                     std::lock_guard<std::mutex> lock(m_cache_mutex);
-                    m_device_found_cb(m_seen_devices[device.ip]);
+                    m_device_found_cb(m_seen_devices[device.addr]);
                 }
             }
         }
@@ -433,9 +433,9 @@ DeviceInfo BtDiscovery::parse_device_from_properties(
     DBusMessageIter* props_iter, const std::string& default_addr) {
 
     DeviceInfo device;
-    device.ip = default_addr;      // 暂存 BDADDR 在 ip 字段 (将被重命名为 addr)
-    device.port = Defaults::SIGNALING_PORT;  // 占位, 后续改为 channel
-    device.manual = false;         // 自动发现的设备
+    device.addr = default_addr;      // 蓝牙地址 (BDADDR)
+    device.port = Defaults::SIGNALING_CHANNEL;  // 信令 RFCOMM 通道号
+    device.manual = false;           // 自动发现的设备
 
     // 遍历属性字典 { "属性名" → variant(值) }
     while (dbus_message_iter_get_arg_type(props_iter) == DBUS_TYPE_DICT_ENTRY) {
@@ -464,7 +464,7 @@ DeviceInfo BtDiscovery::parse_device_from_properties(
         if (strcmp(prop_name, "Address") == 0 && arg_type == DBUS_TYPE_STRING) {
             const char* val = nullptr;
             dbus_message_iter_get_basic(&prop_value, &val);
-            if (val) device.ip = val;  // BDADDR 暂存于 ip
+            if (val) device.addr = val;
         }
         // == Name: 设备显示名称 ==
         else if (strcmp(prop_name, "Name") == 0 && arg_type == DBUS_TYPE_STRING) {
@@ -490,7 +490,7 @@ DeviceInfo BtDiscovery::parse_device_from_properties(
 
     // 如果无名称, 使用 BDADDR 作为名称
     if (device.name.empty()) {
-        device.name = device.ip;
+        device.name = device.addr;
     }
 
     return device;

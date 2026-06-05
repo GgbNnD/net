@@ -53,11 +53,11 @@ namespace ResponseStatus {
 namespace Protocol {
 
 /**
- * @brief 构建设备广播消息 (UDP组播)
+ * @brief 构建设备广播消息 (蓝牙发现 / 手动连接推送)
  * @param device_id   设备唯一ID
  * @param device_name 设备显示名称
- * @param ip          设备IP地址
- * @param port        信令服务端口
+ * @param addr        设备蓝牙地址 (BDADDR)
+ * @param channel     信令 RFCOMM 通道号
  * @param timestamp   当前时间戳 (毫秒)
  * @return JSON消息对象
  *
@@ -66,15 +66,15 @@ namespace Protocol {
  *   "type": "DEVICE_BROADCAST",
  *   "device_id": "uuid",
  *   "device_name": "MyDevice",
- *   "ip": "192.168.1.100",
- *   "port": 8889,
+ *   "addr": "AA:BB:CC:DD:EE:FF",
+ *   "channel": 1,
  *   "timestamp": 1234567890
  * }
  */
 json build_device_broadcast(const std::string& device_id,
                              const std::string& device_name,
-                             const std::string& ip,
-                             uint16_t port,
+                             const std::string& addr,
+                             uint16_t channel,
                              uint64_t timestamp);
 
 /**
@@ -85,12 +85,12 @@ json build_device_broadcast(const std::string& device_id,
 json build_device_offline(const std::string& device_id);
 
 /**
- * @brief 构建 TCP 探活握手消息 (互相发现)
+ * @brief 构建 RFCOMM 探活握手消息 (互相发现)
  */
 json build_device_hello(const std::string& device_id,
                          const std::string& device_name,
-                         const std::string& ip,
-                         uint16_t port);
+                         const std::string& addr,
+                         uint16_t channel);
 
 /**
  * @brief 构建文本聊天消息
@@ -175,13 +175,12 @@ json build_control_message(const std::string& type,
                             const std::string& extra = "");
 
 /**
- * @brief 发送JSON消息 (带长度前缀, 解决TCP粘包问题)
+ * @brief 发送JSON消息 (带长度前缀, 解决流式传输粘包问题)
  * @param sock socket描述符
  * @param msg  JSON消息对象
  * @return 是否发送成功
  *
  * 协议格式: [4字节消息长度(网络字节序)] + [JSON字符串]
- * 这样接收方可以先读4字节获取长度, 再精确读取对应长度的数据
  */
 bool send_json_message(SOCKET_FD sock, const json& msg);
 

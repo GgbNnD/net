@@ -3,6 +3,7 @@
 // ============================================================
 // 公共数据类型定义
 // 功能: 定义整个项目中使用的核心数据结构
+// 蓝牙版: 设备地址使用 BDADDR 而非 IPv4 地址
 // ============================================================
 
 #include <string>
@@ -11,16 +12,16 @@
 #include <vector>
 
 // ----------------------------------------------------------
-// 设备信息: 表示局域网中的一台在线设备
+// 设备信息: 表示蓝牙范围内的一台在线设备
 // ----------------------------------------------------------
 struct DeviceInfo {
     std::string id;             // 设备唯一标识 (UUID格式, 如 "550e8400-e29b-41d4-a716-446655440000")
-    std::string name;           // 设备显示名称 (用户自定义)
-    std::string ip;             // 设备IPv4地址 (如 "192.168.1.100")
-    uint16_t    port;           // 设备信令端口 (默认 8889)
+    std::string name;           // 设备显示名称 (蓝牙设备名)
+    std::string addr;           // 蓝牙设备地址 (如 "AA:BB:CC:DD:EE:FF")
+    uint16_t    port;           // 信令 RFCOMM 通道号 (默认 1)
 
     using TimePoint = std::chrono::steady_clock::time_point;
-    TimePoint last_seen;        // 最后收到该设备广播的时间 (用于心跳超时检测)
+    TimePoint last_seen;        // 最后收到该设备信号的时间 (用于心跳超时检测)
     TimePoint first_seen;       // 首次发现该设备的时间
     bool      manual = false;   // 是否为手动添加 (手动添加的设备不会因超时被清理)
 };
@@ -85,17 +86,14 @@ struct TransferRecord {
 };
 
 // ----------------------------------------------------------
-// 常量定义: 系统默认参数
+// 常量定义: 系统默认参数 (蓝牙版)
 // ----------------------------------------------------------
 namespace Defaults {
-    constexpr uint16_t    DISCOVERY_PORT   = 8888;   // 设备发现UDP端口
-    constexpr uint16_t    SIGNALING_PORT   = 8889;   // 信令控制TCP端口
-    constexpr uint16_t    TRANSFER_PORT    = 8890;   // 文件传输TCP端口
-    constexpr uint16_t    HTTP_PORT        = 8891;   // Web界面HTTP端口
-    constexpr uint32_t    BROADCAST_INTERVAL = 3;    // 广播间隔 (秒)
-    constexpr uint32_t    DEVICE_TIMEOUT   = 10;      // 设备超时时间 (秒)
-    constexpr uint32_t    CHUNK_SIZE       = 65536;   // 默认分片大小 (64KB)
-    constexpr uint32_t    WINDOW_SIZE      = 16;      // 滑动窗口大小 (可同时发送多少个未确认分片)
-    constexpr uint32_t    ACK_TIMEOUT_MS   = 3000;    // ACK超时重传时间 (毫秒)
-    constexpr const char* MULTICAST_ADDR   = "239.255.255.250";  // 组播地址
+    constexpr uint8_t    SIGNALING_CHANNEL = 1;     // 信令控制 RFCOMM 通道
+    constexpr uint8_t    TRANSFER_CHANNEL  = 2;     // 文件传输 RFCOMM 通道
+    constexpr uint16_t   HTTP_PORT         = 8891;  // Web界面 HTTP 端口 (本机 localhost)
+    constexpr uint32_t   DEVICE_TIMEOUT    = 15;    // 设备超时时间 (秒, 蓝牙扫描间隔大)
+    constexpr uint32_t   CHUNK_SIZE        = 65536; // 默认分片大小 (64KB)
+    constexpr uint32_t   WINDOW_SIZE       = 16;    // 滑动窗口大小 (可同时发送多少个未确认分片)
+    constexpr uint32_t   ACK_TIMEOUT_MS    = 3000;  // ACK超时重传时间 (毫秒)
 }

@@ -74,8 +74,8 @@ void DeviceManager::update_device(const DeviceInfo& device) {
 
         std::cout << "[管理器] 新设备上线: " << device.name
                   << " (" << device.id.substr(0, 8) << "...)"
-                  << " [" << device.ip << ":" << device.port << "]"
-                  << std::endl;
+                   << " [" << device.addr << ":" << device.port << "]"
+                   << std::endl;
 
         is_new_device = true;
         cb_device = new_device;
@@ -84,7 +84,7 @@ void DeviceManager::update_device(const DeviceInfo& device) {
         it->second.last_seen = std::chrono::steady_clock::now();
         // 更新可能变化的字段 (设备名、IP可能改变)
         it->second.name = device.name;
-        it->second.ip = device.ip;
+        it->second.addr = device.addr;
         it->second.port = device.port;
     }
 
@@ -143,10 +143,10 @@ size_t DeviceManager::get_device_count() const {
     return m_devices.size();
 }
 
-std::string DeviceManager::find_device_id_by_ip(const std::string& ip) const {
+std::string DeviceManager::find_device_id_by_addr(const std::string& addr) const {
     std::lock_guard<std::mutex> lock(m_mutex);
     for (const auto& pair : m_devices) {
-        if (pair.second.ip == ip) return pair.first;
+        if (pair.second.addr == addr) return pair.first;
     }
     return "";
 }

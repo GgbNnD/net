@@ -16,15 +16,15 @@ namespace Protocol {
 
 json build_device_broadcast(const std::string& device_id,
                              const std::string& device_name,
-                             const std::string& ip,
-                             uint16_t port,
+                             const std::string& addr,
+                             uint16_t channel,
                              uint64_t timestamp) {
     json msg;
     msg["type"]        = MsgType::DEVICE_BROADCAST;
     msg["device_id"]   = device_id;
     msg["device_name"] = device_name;
-    msg["ip"]          = ip;
-    msg["port"]        = port;
+    msg["addr"]        = addr;
+    msg["channel"]     = channel;
     msg["timestamp"]   = timestamp;
     return msg;
 }
@@ -38,14 +38,14 @@ json build_device_offline(const std::string& device_id) {
 
 json build_device_hello(const std::string& device_id,
                          const std::string& device_name,
-                         const std::string& ip,
-                         uint16_t port) {
+                         const std::string& addr,
+                         uint16_t channel) {
     json msg;
     msg["type"]        = MsgType::DEVICE_HELLO;
     msg["device_id"]   = device_id;
     msg["device_name"] = device_name;
-    msg["ip"]          = ip;
-    msg["port"]        = port;
+    msg["addr"]        = addr;
+    msg["channel"]     = channel;
     return msg;
 }
 

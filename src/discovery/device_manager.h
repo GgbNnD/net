@@ -83,10 +83,10 @@ public:
     bool find_device(const std::string& device_id, DeviceInfo& out_device) const;
 
     /**
-     * @brief 根据IP查找设备
+     * @brief 根据地址查找设备
      * @return 找到返回 device.id, 否则返回空字符串
      */
-    std::string find_device_id_by_ip(const std::string& ip) const;
+    std::string find_device_id_by_addr(const std::string& addr) const;
 
     /**
      * @brief 获取当前在线设备数量
