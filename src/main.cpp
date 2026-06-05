@@ -472,28 +472,34 @@ bool init_signaling_service() {
         // 跳过本机地址
         if (remote_addr == g_local_addr) return;
 
+        auto now = std::chrono::steady_clock::now();
+
         // 去重: 检查是否已存在同地址设备
         std::string existing_id = g_device_manager->find_device_id_by_addr(remote_addr);
         if (!existing_id.empty()) {
             DeviceInfo update;
-            update.id        = existing_id;
-            update.name      = remote_name;
-            update.addr      = remote_addr;
-            update.port      = remote_channel;
-            update.last_seen = std::chrono::steady_clock::now();
-            update.manual    = true;
+            update.id          = existing_id;
+            update.name        = remote_name;
+            update.addr        = remote_addr;
+            update.port        = remote_channel;
+            update.last_seen   = now;
+            update.last_probed = now;
+            update.manual      = true;
+            update.connected   = true;   // RFCOMM 握手成功, 标记为已连接
             g_device_manager->update_device(update);
             return;
         }
 
         DeviceInfo device;
-        device.id         = remote_id;
-        device.name       = remote_name;
-        device.addr       = remote_addr;
-        device.port       = remote_channel;
-        device.last_seen  = std::chrono::steady_clock::now();
-        device.first_seen = std::chrono::steady_clock::now();
-        device.manual     = true;
+        device.id          = remote_id;
+        device.name        = remote_name;
+        device.addr        = remote_addr;
+        device.port        = remote_channel;
+        device.last_seen   = now;
+        device.first_seen  = now;
+        device.last_probed = now;
+        device.manual      = true;
+        device.connected   = true;        // RFCOMM 握手成功, 标记为已连接
         g_device_manager->update_device(device);
         save_known_devices();
     });
@@ -574,11 +580,12 @@ bool init_http_service() {
         if (g_device_manager) {
             for (const auto& d : g_device_manager->get_online_devices()) {
                 json dev;
-                dev["id"]     = d.id.substr(0, 8);
-                dev["name"]   = d.name;
-                dev["addr"]   = d.addr;
-                dev["port"]   = d.port;
-                dev["manual"] = d.manual;
+                dev["id"]        = d.id.substr(0, 8);
+                dev["name"]      = d.name;
+                dev["addr"]      = d.addr;
+                dev["port"]      = d.port;
+                dev["manual"]    = d.manual;
+                dev["connected"] = d.connected;
                 auto age = std::chrono::duration_cast<std::chrono::seconds>(
                     std::chrono::steady_clock::now() - d.last_seen).count();
                 dev["online"] = (age < 15);
@@ -1043,45 +1050,82 @@ int main() {
               << " | 传输通道: " << (int)Defaults::TRANSFER_CHANNEL
               << " | 蓝牙地址: " << g_local_addr << std::endl;
 
-    // 启动手动添加设备的 RFCOMM 探活线程 (互相发现)
+    // 启动 RFCOMM 探活线程 (互发现 + 标记已连接设备)
     g_peer_probe_thread = std::thread([]() {
-        std::set<std::string> was_online;
+        std::set<std::string> was_connected;
+        size_t probe_index = 0;  // 轮询索引, 避免每次循环都从头开始
         while (g_running) {
-            std::this_thread::sleep_for(std::chrono::seconds(5));
+            std::this_thread::sleep_for(std::chrono::seconds(3));
 
             if (!g_device_manager) continue;
-            std::set<std::string> now_online;
+            std::set<std::string> now_connected;
+            auto now = std::chrono::steady_clock::now();
             auto devices = g_device_manager->get_online_devices();
-            for (const auto& d : devices) {
-                if (!d.manual) continue;
 
+            if (devices.empty()) continue;
+
+            int probes_this_cycle = 0;
+            const int MAX_PROBES_PER_CYCLE = 3;  // 每轮最多探 3 个设备
+
+            // 从上次轮询位置继续
+            for (size_t i = 0; i < devices.size() && probes_this_cycle < MAX_PROBES_PER_CYCLE; ++i) {
+                size_t idx = (probe_index + i) % devices.size();
+                const auto& d = devices[idx];
+
+                if (d.addr == g_local_addr) continue;
+
+                // 节流: 未连接设备每 60 秒探一次, 已连接每 15 秒
+                auto since_probe = std::chrono::duration_cast<std::chrono::seconds>(
+                    now - d.last_probed).count();
+                int interval = d.connected ? 15 : 60;
+                if (since_probe < interval) {
+                    if (d.connected) now_connected.insert(d.id);
+                    continue;
+                }
+
+                ++probes_this_cycle;
+
+                // RFCOMM 探活 (1s 超时)
                 bool alive = BtSignalingClient::test_connect(
                     d.addr,
                     static_cast<uint8_t>(d.port),
                     g_device_id, g_device_name,
                     g_local_addr,
-                    Defaults::SIGNALING_CHANNEL, 2000);
+                    Defaults::SIGNALING_CHANNEL, 1000);
+
+                DeviceInfo updated = d;
+                updated.last_probed = now;
                 if (alive) {
-                    now_online.insert(d.id);
-                    DeviceInfo updated = d;
-                    updated.last_seen = std::chrono::steady_clock::now();
-                    g_device_manager->update_device(updated);
+                    now_connected.insert(d.id);
+                    updated.last_seen  = now;
+                    updated.connected  = true;  // 握手成功, 标绿
+                    if (!d.connected) {
+                        std::cout << "[事件] 设备已连接: " << d.name
+                                  << " (" << d.addr << ")" << std::endl;
+                    }
+                } else {
+                    updated.connected = false;   // 本次未通, 标灰
                 }
+                g_device_manager->update_device(updated);
             }
-            // 打印离线通知
-            for (const auto& id : was_online) {
-                if (!now_online.count(id)) {
+
+            // 更新轮询索引
+            probe_index = (probe_index + probes_this_cycle) % devices.size();
+
+            // 打印断开通知
+            for (const auto& id : was_connected) {
+                if (!now_connected.count(id)) {
                     auto all = g_device_manager->get_online_devices();
                     for (const auto& d : all) {
-                        if (d.id == id && d.manual) {
-                            std::cout << "[事件] 设备离线: " << d.name
+                        if (d.id == id) {
+                            std::cout << "[事件] 设备断开: " << d.name
                                       << " (" << d.addr << ")" << std::endl;
                             break;
                         }
                     }
                 }
             }
-            was_online = std::move(now_online);
+            was_connected = std::move(now_connected);
         }
     });
 

@@ -82,10 +82,17 @@ void DeviceManager::update_device(const DeviceInfo& device) {
     } else {
         // 已知设备: 更新最后活跃时间
         it->second.last_seen = std::chrono::steady_clock::now();
-        // 更新可能变化的字段 (设备名、IP可能改变)
+        // 更新可能变化的字段
         it->second.name = device.name;
         it->second.addr = device.addr;
         it->second.port = device.port;
+        it->second.manual = device.manual || it->second.manual;
+        // 仅当 incoming device 携带有效的探活时间时才更新
+        // (避免蓝牙扫描结果覆盖 RFCOMM 探活线程设置的 connected 状态)
+        if (device.last_probed.time_since_epoch().count() > 0) {
+            it->second.last_probed = device.last_probed;
+            it->second.connected = device.connected;
+        }
     }
 
     // 解锁后再触发回调, 避免死锁

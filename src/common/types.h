@@ -23,7 +23,9 @@ struct DeviceInfo {
     using TimePoint = std::chrono::steady_clock::time_point;
     TimePoint last_seen;        // 最后收到该设备信号的时间 (用于心跳超时检测)
     TimePoint first_seen;       // 首次发现该设备的时间
+    TimePoint last_probed;      // 最后一次 RFCOMM 探活时间
     bool      manual = false;   // 是否为手动添加 (手动添加的设备不会因超时被清理)
+    bool      connected = false;// 是否已通过 RFCOMM 握手确认连接 (绿灯/灰灯区分)
 };
 
 // ----------------------------------------------------------

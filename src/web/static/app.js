@@ -28,8 +28,10 @@ function renderDevices(){
     var li=document.createElement('li');li.className='dev';
     if(d.id===selected)li.classList.add('selected');
     var av=d.name[0]||'?';
-    var statusCls=d.online?'online':'offline';
-    li.innerHTML='<div class="avatar">'+av+'</div><div class="info"><div class="name">'+d.name+'</div><div class="ip">'+d.addr+'</div></div><span class="status '+statusCls+'"></span>';
+    // connected=true → 绿灯(已配对连接); connected=false → 灰灯(未配对)
+    var statusCls=d.connected?'online':'offline';
+    var statusText=d.connected?'已连接':'未配对';
+    li.innerHTML='<div class="avatar">'+av+'</div><div class="info"><div class="name">'+d.name+'</div><div class="ip">'+d.addr+' <span style="font-size:10px;opacity:0.6">('+statusText+')</span></div></div><span class="status '+statusCls+'"></span>';
     li.onclick=function(){selectDevice(d.id,d.name,d.addr);};
     list.appendChild(li);
   });
