@@ -1,13 +1,13 @@
 cmake_minimum_required(VERSION 3.14)
 
 # ============================================================
-# P2P局域网文件传输工具 - 构建配置
+# P2P蓝牙文件传输工具 - 构建配置
 # 项目名称: P2PFileTransfer
 # C++标准: C++17
-# 平台: Linux / Windows / macOS (跨平台)
+# 平台: Linux (BlueZ + D-Bus)
 # ============================================================
 
-project(P2PFileTransfer VERSION 1.0.0 LANGUAGES CXX)
+project(P2PFileTransfer VERSION 2.0.0 LANGUAGES CXX)
 
 # ----------------------------------------------------------
 # C++标准设置
@@ -23,18 +23,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 # ----------------------------------------------------------
 # 平台相关的库和编译选项
 # ----------------------------------------------------------
-if(WIN32)
-    # Windows 需要链接 winsock2 和 ws2_32
-    set(PLATFORM_LIBS ws2_32)
-    add_compile_definitions(_WINSOCK_DEPRECATED_NO_WARNINGS)
-    add_compile_definitions(NOMINMAX)  # 避免 min/max 宏冲突
-elseif(APPLE)
-    # macOS 不需要额外的库
-    set(PLATFORM_LIBS)
-else()
-    # Linux 需要链接 pthread
-    set(PLATFORM_LIBS pthread)
-endif()
+# Linux: pthread + bluetooth + dbus-1
+set(PLATFORM_LIBS pthread bluetooth dbus-1)
 
 # ----------------------------------------------------------
 # 收集所有源文件
@@ -87,5 +77,6 @@ message(STATUS "  项目名称: ${PROJECT_NAME}")
 message(STATUS "  C++标准:  C++17")
 message(STATUS "  构建类型: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  输出目录: ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+message(STATUS "  平台库:   ${PLATFORM_LIBS}")
 message(STATUS "  JSON库:   nlohmann/json (本地 header-only)")
 message(STATUS "============================================")
