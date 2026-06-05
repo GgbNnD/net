@@ -29,15 +29,15 @@ function renderDevices(){
     if(d.id===selected)li.classList.add('selected');
     var av=d.name[0]||'?';
     var statusCls=d.online?'online':'offline';
-    li.innerHTML='<div class="avatar">'+av+'</div><div class="info"><div class="name">'+d.name+'</div><div class="ip">'+d.ip+'</div></div><span class="status '+statusCls+'"></span>';
-    li.onclick=function(){selectDevice(d.id,d.name,d.ip);};
+    li.innerHTML='<div class="avatar">'+av+'</div><div class="info"><div class="name">'+d.name+'</div><div class="ip">'+d.addr+'</div></div><span class="status '+statusCls+'"></span>';
+    li.onclick=function(){selectDevice(d.id,d.name,d.addr);};
     list.appendChild(li);
   });
 }
 
-function selectDevice(id,name,ip){
+function selectDevice(id,name,addr){
   selected=id;
-  document.getElementById('chat-header').innerHTML=name+' <small style="color:#888;font-weight:400">('+ip+')</small> <button class="delete-btn" onclick="event.stopPropagation();removePeer(\''+ip+'\')">删除</button>';
+  document.getElementById('chat-header').innerHTML=name+' <small style="color:#888;font-weight:400">('+addr+')</small> <button class="delete-btn" onclick="event.stopPropagation();removePeer(\''+addr+'\')">删除</button>';
   document.getElementById('send-btn').disabled=false;
   document.querySelectorAll('#device-list .dev').forEach(function(el){el.classList.remove('selected')});
   renderMessages();
@@ -93,7 +93,7 @@ async function sendMessage(){
   var dev=devs.find(function(d){return d.id===selected});
   if(!dev)return;
   try{
-    await fetch(API+'/message',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'target_ip='+encodeURIComponent(dev.ip)+'&target_port='+(dev.port||8889)+'&text='+encodeURIComponent(txt)});
+    await fetch(API+'/message',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'target_addr='+encodeURIComponent(dev.addr)+'&target_channel='+(dev.port||1)+'&text='+encodeURIComponent(txt)});
     addTextMsg(selected,'sent',txt);
     ta.value='';ta.style.height='auto';renderMessages();
   }catch(e){}
@@ -108,7 +108,7 @@ async function onFileSelected(){
   reader.onload=async function(){
     var b64=reader.result.split(',')[1];
     try{
-      var r=await fetch(API+'/transfer',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'target_ip='+encodeURIComponent(dev.ip)+'&target_port='+(dev.port||8889)+'&filename='+encodeURIComponent(f.name)+'&filedata='+encodeURIComponent(b64)});
+      var r=await fetch(API+'/transfer',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'target_addr='+encodeURIComponent(dev.addr)+'&target_channel='+(dev.port||1)+'&filename='+encodeURIComponent(f.name)+'&filedata='+encodeURIComponent(b64)});
       var d=await r.json();
     }catch(e){}
   };
@@ -121,10 +121,10 @@ async function refreshTransfers(){
     var r=await fetch(API+'/transfers'),d=await r.json();
     (d.transfers||[]).forEach(function(t){
       var isSender=t.is_sender;
-      var peerIp=t.target_ip;
-      var dev=devs.find(function(dd){return dd.ip===peerIp});
-      var did=dev?dev.id:('ip_'+peerIp);
-      if(!did||peerIp==='127.0.0.1')return;
+      var peerAddr=t.target_addr;
+      var dev=devs.find(function(dd){return dd.addr===peerAddr});
+      var did=dev?dev.id:('addr_'+peerAddr);
+      if(!did)return;
 
       var pct=t.total_chunks>0?Math.round(t.progress_chunk/t.total_chunks*100):0;
       var isDone=t.state==='COMPLETED';
@@ -140,21 +140,21 @@ async function refreshTransfers(){
   }catch(e){}
 }
 
-function findDeviceIdForReceiving(ip){
-  if(!ip||ip==='127.0.0.1')return null;
-  for(var i=0;i<devs.length;i++){if(devs[i].ip===ip)return devs[i].id}
+function findDeviceIdForReceiving(addr){
+  if(!addr)return null;
+  for(var i=0;i<devs.length;i++){if(devs[i].addr===addr)return devs[i].id}
   return null;
 }
 
 async function addPeer(){
-  var ip=document.getElementById('peer-ip').value.trim();if(!ip)return;
-  await fetch(API+'/peers/add',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'ip='+encodeURIComponent(ip)+'&name='+encodeURIComponent(ip)});
+  var addr=document.getElementById('peer-ip').value.trim();if(!addr)return;
+  await fetch(API+'/peers/add',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'addr='+encodeURIComponent(addr)+'&name='+encodeURIComponent(addr)});
   document.getElementById('peer-ip').value='';
   refreshDevices();
 }
 
-async function removePeer(ip){
-  await fetch(API+'/peers/remove',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'ip='+encodeURIComponent(ip)});
+async function removePeer(addr){
+  await fetch(API+'/peers/remove',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'addr='+encodeURIComponent(addr)});
   selected='';document.getElementById('chat-header').textContent='选择一个设备开始聊天';
   document.getElementById('chat-area').innerHTML='<div class="empty-chat">请从左侧选择设备</div>';
   document.getElementById('send-btn').disabled=true;
@@ -165,7 +165,7 @@ async function refreshMessages(){
   for(var i=0;i<devs.length;i++){
     var d=devs[i];
     try{
-      var r=await fetch(API+'/messages/poll',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'ip='+encodeURIComponent(d.ip)});
+      var r=await fetch(API+'/messages/poll',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'addr='+encodeURIComponent(d.addr)});
       var data=await r.json();
       (data.messages||[]).forEach(function(m){
         addTextMsg(d.id,'received',m.text);
