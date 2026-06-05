@@ -276,15 +276,15 @@ DBusHandlerResult BtDiscovery::dbus_filter(DBusConnection* /*conn*/,
 // ============================================================
 
 void BtDiscovery::handle_interfaces_added(DBusMessage* msg) {
-    DBusMessageIter iter, array_iter;
+    DBusMessageIter iter;
     if (!dbus_message_iter_init(msg, &iter)) return;
 
     // ARG0: OBJECT_PATH (设备路径, 如 "/org/bluez/hci0/dev_XX_XX_XX_XX_XX_XX")
-    const char* device_path = nullptr;
+    // 跳过对象路径字段
     if (dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_OBJECT_PATH) {
-        dbus_message_iter_get_basic(&iter, &device_path);
+        // 路径已获取, 继续处理 ARG1
     } else {
-        return;  // 非 InterfacesAdded 信号格式
+        return;
     }
 
     // ARG1: 接口字典 (array of dict_entries)
@@ -297,7 +297,7 @@ void BtDiscovery::handle_interfaces_added(DBusMessage* msg) {
     dbus_message_iter_recurse(&iter, &dict_iter);
 
     while (dbus_message_iter_get_arg_type(&dict_iter) == DBUS_TYPE_DICT_ENTRY) {
-        DBusMessageIter entry, iface_entry, props_array;
+        DBusMessageIter entry, props_array;
         dbus_message_iter_recurse(&dict_iter, &entry);
 
         const char* iface_name = nullptr;

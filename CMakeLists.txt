@@ -46,6 +46,14 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/lib
 )
+
+# 使用 pkg-config 获取 dbus-1 的编译选项
+find_package(PkgConfig QUIET)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(DBUS REQUIRED dbus-1)
+    target_include_directories(${PROJECT_NAME} PRIVATE ${DBUS_INCLUDE_DIRS})
+endif()
+
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${PLATFORM_LIBS}
 )

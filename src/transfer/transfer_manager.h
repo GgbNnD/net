@@ -6,8 +6,6 @@
 // ============================================================
 
 #include "common/types.h"
-#include "transfer/transfer_sender.h"
-#include "transfer/transfer_receiver.h"
 #include <map>
 #include <mutex>
 #include <functional>
@@ -32,7 +30,7 @@ public:
     /**
      * @brief 设置接收方服务 (让管理器知道接收端口)
      */
-    void set_receiver(TransferReceiver* receiver) { m_receiver = receiver; }
+    void set_receiver(void* receiver) { m_receiver = receiver; }
 
     /**
      * @brief 添加传输任务
@@ -107,7 +105,7 @@ public:
 private:
     mutable std::mutex m_mutex;
     std::map<std::string, TransferTask> m_tasks;  // 任务列表
-    TransferReceiver* m_receiver;
+    void* m_receiver;  // 接收方服务指针 (BtTransferReceiver*)
 
     TaskUpdateCallback m_task_update_cb;
     TaskUpdateCallback m_task_complete_cb;

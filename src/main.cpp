@@ -515,8 +515,7 @@ bool init_transfer_service() {
 
     g_transfer_receiver = std::make_unique<BtTransferReceiver>(Defaults::TRANSFER_CHANNEL);
     g_transfer_receiver->set_save_directory("./received_files");
-    g_transfer_manager->set_receiver(
-        reinterpret_cast<TransferReceiver*>(g_transfer_receiver.get()));
+    g_transfer_manager->set_receiver(g_transfer_receiver.get());
 
     // 接收开始回调: 创建 TransferTask 记录
     g_transfer_receiver->set_on_receive_start([](const std::string& file_id,

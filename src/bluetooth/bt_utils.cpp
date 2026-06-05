@@ -18,7 +18,6 @@
 // BlueZ 服务名
 static const char* BLUEZ_SERVICE   = "org.bluez";
 static const char* ADAPTER_IFACE   = "org.bluez.Adapter1";
-static const char* DEVICE_IFACE    = "org.bluez.Device1";
 static const char* AGENT_MANAGER_IFACE = "org.bluez.AgentManager1";
 static const char* OBJECT_MANAGER_IFACE = "org.freedesktop.DBus.ObjectManager";
 static const char* PROPERTIES_IFACE = "org.freedesktop.DBus.Properties";
@@ -499,10 +498,13 @@ std::string register_auto_pair_agent(DBusConnection* conn,
     // 使用固定的 agent 路径
     const char* agent_path = AGENT_PATH;
 
+    // AgentManager1 位于 BlueZ 根路径 "/org/bluez", 而非适配器路径
+    const char* mgr_path = "/org/bluez";
+
     // 1. 注册 Agent
     {
         DBusMessage* msg = dbus_message_new_method_call(
-            BLUEZ_SERVICE, adapter_path.c_str(),
+            BLUEZ_SERVICE, mgr_path,
             AGENT_MANAGER_IFACE, "RegisterAgent");
 
         if (!msg) return "";
@@ -537,7 +539,7 @@ std::string register_auto_pair_agent(DBusConnection* conn,
     // 2. 设置为默认 Agent
     {
         DBusMessage* msg = dbus_message_new_method_call(
-            BLUEZ_SERVICE, adapter_path.c_str(),
+            BLUEZ_SERVICE, mgr_path,
             AGENT_MANAGER_IFACE, "RequestDefaultAgent");
 
         if (!msg) return "";
@@ -569,12 +571,13 @@ std::string register_auto_pair_agent(DBusConnection* conn,
 }
 
 bool unregister_auto_pair_agent(DBusConnection* conn,
-                                 const std::string& adapter_path,
+                                 const std::string& /*adapter_path*/,
                                  const std::string& agent_path) {
-    if (!conn || adapter_path.empty() || agent_path.empty()) return false;
+    if (!conn || agent_path.empty()) return false;
 
+    // AgentManager1 位于 BlueZ 根路径
     DBusMessage* msg = dbus_message_new_method_call(
-        BLUEZ_SERVICE, adapter_path.c_str(),
+        BLUEZ_SERVICE, "/org/bluez",
         AGENT_MANAGER_IFACE, "UnregisterAgent");
 
     if (!msg) return false;
@@ -622,7 +625,8 @@ SOCKET_FD create_rfcomm_server(uint8_t channel, int backlog) {
     addr.rc_family  = AF_BLUETOOTH;
     addr.rc_channel = channel;
     // bdaddr_any: 00:00:00:00:00:00 → 绑定到任意本机蓝牙适配器
-    bacpy(&addr.rc_bdaddr, BDADDR_ANY);
+    bdaddr_t bdaddr_any = {0};
+    bacpy(&addr.rc_bdaddr, &bdaddr_any);
 
     if (bind(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
         std::cerr << "[蓝牙] RFCOMM bind() 失败 (通道 " << (int)channel
