@@ -5,7 +5,7 @@
 ```bash
 cmake -B build -S .          # re-run when adding .cpp (GLOB_RECURSE snapshots)
 cmake --build build -j$(nproc)
-./build/bin/P2PFileTransfer   # tests run at startup, then services enter main loop
+./build/bin/P2PFileTransfer   # unit tests run silently, then services enter main loop
 ```
 
 ## Architecture
@@ -23,6 +23,17 @@ lib/nlohmann/json.hpp  → Vendored JSON library (v3.11.3)
 
 Each layer runs in its own thread(s). All services register callbacks rather than direct coupling.
 
+## Port Cleanup
+
+**Must use SIGKILL (-9).** SIGTERM only sets `g_running = false` but `recv_loop()` blocks on `recvfrom()` and won't wake until the socket is closed. Without -9 the process hangs indefinitely.
+
+```bash
+kill -9 $(pgrep -f P2PFileTransfer)
+sleep 1   # wait for sockets to close
+```
+
+`sudo fuser -k` is available but requires sudo password — use `kill -9` as primary method.
+
 ## Testing (inline in main.cpp)
 
 1. **Phase 1** — UUID, MD5, formatting, protocol message construction
@@ -30,16 +41,7 @@ Each layer runs in its own thread(s). All services register callbacks rather tha
 3. **Phase 3** — SignalingServer + SignalingClient round-trip on localhost:**18889**
 4. **Phase 4** — Chunk serde, FileChunkIO local I/O, e2e on localhost:**18890**
 
-If a test fails (e.g., port in use), the program still starts live services. Phase 4 e2e uses a 100KB file (2 chunks); it does NOT test single-chunk edge cases.
-
-## Port Cleanup
-
-```bash
-sudo fuser -k 18889/tcp 18890/tcp 8888/tcp 8889/tcp 8890/tcp
-# or:
-kill -9 $(pgrep -f P2PFileTransfer)
-sleep 2   # wait for TIME_WAIT
-```
+Test output is suppressed at startup (cout redirected to `/dev/null` during tests, `main.cpp:1104`). Tests are `void` functions — failures print to cout but do not prevent service startup. Phase 4 e2e uses a 100KB file (2 chunks); does NOT test single-chunk edge cases.
 
 ## REST API Endpoints
 
@@ -58,17 +60,20 @@ sleep 2   # wait for TIME_WAIT
 ## Key Implementation Details
 
 ### Multicast route (required)
-UDP multicast to `239.255.255.250:8888` needs a route. Without it, discovery silently fails.
+UDP multicast to `239.255.255.250:8888` needs a route. Without it, multicast packets are silently dropped by the kernel (sendto returns success but nothing goes on the wire).
 ```bash
 sudo ip route add 224.0.0.0/4 dev <interface>
 ```
-Verify with: `ip route show | grep 224`
+Verify: `ip route show | grep 224`
+
+### WiFi client isolation
+Enterprise/campus WiFi APs often block multicast between wireless clients. Devices on the same subnet may be unable to discover each other via UDP multicast even with correct routes and IGMP joins. Fallback: `known_devices.json` + TCP `DEVICE_HELLO` probe (unicast on port 8889) still works through client isolation.
 
 ### select_local_ip() uses UDP connect trick
 Connects a temp socket to `1.1.1.1:53` to trigger kernel routing, then `getsockname()` to get the primary interface IP. Avoids picking docker/virtual IPs. Falls back to first `get_local_ips()` result.
 
 ### Multicast join on ALL interfaces
-`create_socket()` calls `IP_ADD_MEMBERSHIP` for every non-loopback IP, not just the selected one. This ensures multicast packets arrive regardless of which interface they come in on.
+`create_socket()` calls `IP_ADD_MEMBERSHIP` for every non-loopback IP, plus a fallback join on `m_local_ip`. This ensures multicast packets arrive regardless of which interface they come in on.
 
 ### Mutual discovery via DEVICE_HELLO
 `SignalingClient::test_connect()` sends a `DEVICE_HELLO` JSON message before closing. The receiving `SignalingServer` calls `m_device_hello_cb` which auto-adds the sender via `DeviceManager`. Both sides see each other after a single manual add.
@@ -77,13 +82,14 @@ Connects a temp socket to `1.1.1.1:53` to trigger kernel routing, then `getsockn
 `DeviceManager::find_device_id_by_ip(ip)` finds existing devices by IP. Both the `DEVICE_HELLO` callback and `/api/peers/add` check this before creating new entries. Also skip self-IP (local addresses are filtered out).
 
 ### Device persistence (known_devices.json)
-Manual/auto-discovered devices saved to `known_devices.json`. On startup, `load_known_devices()` loads them, skipping self-IPs and deduplicating by IP. `save_known_devices()` also deduplicates before writing. Both functions must be forward-declared before `init_discovery_service()`.
+Manual/auto-discovered devices saved to `known_devices.json`. On startup, `load_known_devices()` loads them, skipping self-IPs and deduplicating by IP. `save_known_devices()` also deduplicates before writing. Load happens before discovery service starts, so persisted devices appear instantly on startup.
+Both functions must be forward-declared before `init_discovery_service()`.
 
 ### Peer probe thread
-Runs every 5 seconds, calls `test_connect()` with local device info. On success, updates `last_seen` (keeping device "online" for 15s). On failure, does NOT remove the device — `last_seen` ages out, web UI shows gray dot. Offline transitions logged as `[事件] 设备离线`.
+Runs every 5 seconds, calls `test_connect()` with local device info. On success, updates `last_seen` (keeping device "online" for 15s). On failure, does NOT remove the device — `last_seen` ages out, web UI shows gray dot.
 
 ### Offline = last_seen > 15s ago
-Both terminal main loop and `/api/devices` use `(now - last_seen) > 15s` as the online/offline threshold. Offline devices stay in the list permanently; only manual removal deletes them.
+Both terminal main loop and `/api/devices` use `(now - last_seen) > 15s` threshold. Offline devices stay in the list permanently; only manual removal deletes them.
 
 ### Single-chunk receiver bug (FIXED)
 The original loop condition `get_max_contiguous_chunk() < total_chunks - 1` evaluates to `0 < 0` for single-chunk files, so the receive loop never executes, yet the empty file is committed as "complete" → MD5 mismatch. Now uses `while (chunk_count < meta.total_chunks)`.
