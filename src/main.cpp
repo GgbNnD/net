@@ -1101,11 +1101,17 @@ int main() {
     }
     std::cout << std::endl << std::endl;
 
-    // 运行单元验证
-    run_phase1_tests();
-    run_phase2_tests();
-    run_phase3_tests();
-    run_phase4_tests();
+    // 运行单元验证 (静默执行, 不输出到终端)
+    {
+        std::ofstream null_out("/dev/null");
+        auto* orig_rdbuf = std::cout.rdbuf();
+        std::cout.rdbuf(null_out.rdbuf());
+        run_phase1_tests();
+        run_phase2_tests();
+        run_phase3_tests();
+        run_phase4_tests();
+        std::cout.rdbuf(orig_rdbuf);
+    }
 
     // 启动服务
     if (!init_discovery_service()) return 1;
