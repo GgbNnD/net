@@ -109,7 +109,10 @@ bool BtDiscovery::start() {
     // 7. 添加本模块的 D-Bus 过滤器 (监听设备信号)
     BtUtils::add_dbus_filter(m_dbus_conn, dbus_filter, this);
 
-    // 8. 启动设备扫描
+    // 8. 加载 BlueZ 对象树中已有的设备 (避免遗漏启动前已在范围的设备)
+    load_existing_devices();
+
+    // 9. 启动设备扫描
     if (!BtUtils::start_discovery(m_dbus_conn, m_adapter_path)) {
         std::cerr << "[蓝牙发现] 启动扫描失败" << std::endl;
         BtUtils::remove_dbus_filter(m_dbus_conn, dbus_filter, this);
@@ -119,7 +122,7 @@ bool BtDiscovery::start() {
         return false;
     }
 
-    // 9. 启动后台线程
+    // 10. 启动后台线程
     m_running = true;
     m_dispatch_thread = std::thread(&BtDiscovery::dispatch_loop, this);
     m_cleanup_thread  = std::thread(&BtDiscovery::cleanup_loop, this);
@@ -423,6 +426,99 @@ void BtDiscovery::handle_properties_changed(DBusMessage* msg) {
             }
         }
     }
+}
+
+// ============================================================
+// 初始化: 加载已有设备
+// ============================================================
+
+std::string BtDiscovery::extract_bdaddr_from_path(const std::string& device_path) {
+    // device_path 格式: "/org/bluez/hci0/dev_XX_XX_XX_XX_XX_XX"
+    const char* underscore = strrchr(device_path.c_str(), '_');
+    if (!underscore || strlen(underscore) < 18) return {};
+
+    std::string addr;
+    addr.reserve(17);
+    for (int i = 1; i <= 17; ++i) {
+        char c = underscore[i];
+        addr += (c == '_') ? ':' : c;
+    }
+    return addr;
+}
+
+void BtDiscovery::load_existing_devices() {
+    if (!m_dbus_conn) return;
+
+    DBusMessage* reply = BtUtils::get_managed_objects(m_dbus_conn);
+    if (!reply) return;
+
+    DBusMessageIter root_iter;
+    if (!dbus_message_iter_init(reply, &root_iter)) {
+        dbus_message_unref(reply);
+        return;
+    }
+
+    if (dbus_message_iter_get_arg_type(&root_iter) != DBUS_TYPE_ARRAY) {
+        dbus_message_unref(reply);
+        return;
+    }
+
+    DBusMessageIter obj_array;
+    dbus_message_iter_recurse(&root_iter, &obj_array);
+
+    while (dbus_message_iter_get_arg_type(&obj_array) == DBUS_TYPE_DICT_ENTRY) {
+        DBusMessageIter obj_entry, iface_array;
+        dbus_message_iter_recurse(&obj_array, &obj_entry);
+
+        const char* obj_path_cstr = nullptr;
+        dbus_message_iter_get_basic(&obj_entry, &obj_path_cstr);
+        std::string obj_path = obj_path_cstr ? obj_path_cstr : "";
+
+        if (!dbus_message_iter_next(&obj_entry)) {
+            dbus_message_iter_next(&obj_array);
+            continue;
+        }
+
+        dbus_message_iter_recurse(&obj_entry, &iface_array);
+
+        while (dbus_message_iter_get_arg_type(&iface_array) == DBUS_TYPE_DICT_ENTRY) {
+            DBusMessageIter iface_entry, props_array;
+            dbus_message_iter_recurse(&iface_array, &iface_entry);
+
+            const char* iface_name = nullptr;
+            dbus_message_iter_get_basic(&iface_entry, &iface_name);
+
+            if (iface_name && strcmp(iface_name, "org.bluez.Device1") == 0) {
+                if (dbus_message_iter_next(&iface_entry) &&
+                    dbus_message_iter_get_arg_type(&iface_entry) == DBUS_TYPE_ARRAY) {
+                    dbus_message_iter_recurse(&iface_entry, &props_array);
+
+                    std::string addr = extract_bdaddr_from_path(obj_path);
+                    DeviceInfo device = parse_device_from_properties(&props_array, addr);
+
+                    if (!device.addr.empty() && device.addr != m_local_addr) {
+                        std::lock_guard<std::mutex> lock(m_cache_mutex);
+                        auto it = m_seen_devices.find(device.addr);
+                        if (it == m_seen_devices.end()) {
+                            device.id = Utils::generate_uuid();
+                            device.last_seen = std::chrono::steady_clock::now();
+                            device.first_seen = std::chrono::steady_clock::now();
+                            m_seen_devices[device.addr] = device;
+
+                            if (m_device_found_cb) {
+                                m_device_found_cb(m_seen_devices[device.addr]);
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+            dbus_message_iter_next(&iface_array);
+        }
+        dbus_message_iter_next(&obj_array);
+    }
+
+    dbus_message_unref(reply);
 }
 
 // ============================================================

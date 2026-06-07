@@ -446,7 +446,7 @@ DBusHandlerResult handle_agent_message(DBusConnection* conn,
     if (!method) return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 
     DBusMessage* reply = dbus_message_new_method_return(msg);
-    if (!reply) return DBUS_HANDLER_RESULT_HANDLED;
+    if (!reply) return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 
     std::cout << "[蓝牙] Agent 方法: " << method << std::endl;
 

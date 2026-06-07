@@ -156,6 +156,19 @@ private:
      */
     DeviceInfo parse_device_from_properties(DBusMessageIter* props_iter,
                                              const std::string& default_addr = "");
+
+    /**
+     * @brief 加载 BlueZ 对象树中已有的设备
+     * 调用 GetManagedObjects 获取当前已知设备,
+     * 确保启动时不会遗漏已在范围内的设备
+     */
+    void load_existing_devices();
+
+    /**
+     * @brief 从 BlueZ 设备路径提取 BDADDR
+     * "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF" → "AA:BB:CC:DD:EE:FF"
+     */
+    static std::string extract_bdaddr_from_path(const std::string& device_path);
 };
 
 // ============================================================
