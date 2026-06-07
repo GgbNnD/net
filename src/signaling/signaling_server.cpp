@@ -258,28 +258,32 @@ void SignalingServer::handle_client(SOCKET_FD client_sock, const std::string& cl
         }
 
     } else if (type == MsgType::DEVICE_HELLO) {
-        // TCP探活握手: 通知上层添加发送方设备
         if (m_device_hello_cb) {
             m_device_hello_cb(msg, client_ip);
         }
     } else if (type == MsgType::TEXT_MESSAGE) {
-        // 聊天文本消息: 转发给控制消息回调
         if (m_control_msg_cb) {
             m_control_msg_cb(msg, client_ip);
         }
+        json ack;
+        ack["type"]   = "TEXT_ACK";
+        ack["status"] = "ok";
+        Protocol::send_json_message(client_sock, ack);
     } else if (type == MsgType::TRANSFER_CANCEL ||
                type == MsgType::TRANSFER_PAUSE  ||
                type == MsgType::TRANSFER_RESUME ||
                type == MsgType::TRANSFER_DONE   ||
                type == MsgType::TRANSFER_ERROR) {
-        // 控制消息: 通知上层
         if (m_control_msg_cb) {
             m_control_msg_cb(msg, client_ip);
         }
+        json ack;
+        ack["type"]   = "CONTROL_ACK";
+        ack["status"] = "ok";
+        Protocol::send_json_message(client_sock, ack);
     } else {
         std::cerr << "[信令] 未知消息类型: " << type << std::endl;
     }
 
-    // 关闭连接 (短连接模式)
     CLOSE_SOCKET(client_sock);
 }

@@ -236,10 +236,10 @@ void DeviceDiscovery::send_loop() {
     inet_pton(AF_INET, m_multicast_addr.c_str(), &multicast_addr.sin_addr);
 
     while (m_running.load()) {
-        // 构建设备广播消息 (JSON格式)
+        // 构建设备广播消息 (JSON格式, 端口使用信令端口)
         uint64_t now = Utils::get_timestamp_ms();
         json msg = Protocol::build_device_broadcast(
-            m_device_id, m_device_name, m_local_ip, m_port, now
+            m_device_id, m_device_name, m_local_ip, Defaults::SIGNALING_PORT, now
         );
         std::string msg_str = msg.dump();
 
