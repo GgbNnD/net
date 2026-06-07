@@ -182,6 +182,7 @@ json build_control_message(const std::string& type,
  *
  * 协议格式: [4字节消息长度(网络字节序)] + [JSON字符串]
  * 这样接收方可以先读4字节获取长度, 再精确读取对应长度的数据
+ * 发送前自动调用 sign_message() 附加 MAC 校验码
  */
 bool send_json_message(SOCKET_FD sock, const json& msg);
 
@@ -190,7 +191,21 @@ bool send_json_message(SOCKET_FD sock, const json& msg);
  * @param sock socket描述符
  * @param msg  输出: 解析后的JSON对象
  * @return 是否接收成功
+ *
+ * 接收后自动校验 MAC, 校验失败返回 false
  */
 bool recv_json_message(SOCKET_FD sock, json& msg);
+
+/**
+ * @brief 计算消息的 MAC (报文鉴别码)
+ * MD5(消息JSON串 + 共享密钥), 防止伪造
+ */
+void sign_message(json& msg);
+
+/**
+ * @brief 验证消息的 MAC
+ * @return true=通过, false=伪造或被篡改
+ */
+bool verify_message(const json& msg);
 
 } // namespace Protocol

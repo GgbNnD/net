@@ -4,11 +4,14 @@
 
 #include "common/protocol.h"
 #include "common/platform.h"
+#include "common/utils.h"
 #include <cstring>
 #include <vector>
 #include <cstdint>
 
 namespace Protocol {
+
+constexpr const char* MAC_SECRET = "p2p-transfer-secret-2024";
 
 // ============================================================
 // 协议消息构建函数
@@ -108,6 +111,42 @@ json build_control_message(const std::string& type,
 }
 
 // ============================================================
+// MAC 报文鉴别码 (MD5 + 共享密钥)
+// ============================================================
+
+void sign_message(json& msg) {
+    json canonical = msg;
+    canonical.erase("mac");
+
+    std::string payload = canonical.dump();
+    std::string mac = Utils::md5_data(
+        reinterpret_cast<const uint8_t*>(payload.data()), payload.size());
+    mac = Utils::md5_data(
+        reinterpret_cast<const uint8_t*>((payload + MAC_SECRET).data()),
+        payload.size() + strlen(MAC_SECRET));
+
+    msg["mac"] = mac;
+}
+
+bool verify_message(const json& msg) {
+    if (!msg.contains("mac")) {
+        // 兼容旧版本: 无 MAC 的消息仍接受
+        return true;
+    }
+
+    json canonical = msg;
+    std::string received_mac = canonical["mac"];
+    canonical.erase("mac");
+
+    std::string payload = canonical.dump();
+    std::string expected_mac = Utils::md5_data(
+        reinterpret_cast<const uint8_t*>((payload + MAC_SECRET).data()),
+        payload.size() + strlen(MAC_SECRET));
+
+    return received_mac == expected_mac;
+}
+
+// ============================================================
 // 带长度前缀的JSON消息收发
 // 格式: [4字节消息体长度 (网络字节序, uint32_t)] + [JSON字符串 (UTF-8)]
 // ============================================================
@@ -129,8 +168,10 @@ json build_control_message(const std::string& type,
  * 剩余数据保留在缓冲区供下一条消息读取。
  */
 bool send_json_message(SOCKET_FD sock, const json& msg) {
-    // 将JSON对象序列化为字符串
-    std::string json_str = msg.dump();
+    json signed_msg = msg;
+    sign_message(signed_msg);
+
+    std::string json_str = signed_msg.dump();
 
     // 构造长度前缀 + 数据体
     uint32_t data_len = static_cast<uint32_t>(json_str.size());
@@ -203,6 +244,8 @@ bool recv_json_message(SOCKET_FD sock, json& msg) {
     // 3. 解析JSON
     try {
         msg = json::parse(buffer.data());
+        // 4. 校验 MAC
+        if (!verify_message(msg)) return false;
         return true;
     } catch (const json::exception&) {
         return false;

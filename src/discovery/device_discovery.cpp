@@ -85,6 +85,7 @@ void DeviceDiscovery::stop() {
 
     // 发送离线通知 (广播给所有设备, 立即移除)
     json offline_msg = Protocol::build_device_offline(m_device_id);
+    Protocol::sign_message(offline_msg);
     std::string msg_str = offline_msg.dump();
 
     // 组播地址结构
@@ -241,6 +242,7 @@ void DeviceDiscovery::send_loop() {
         json msg = Protocol::build_device_broadcast(
             m_device_id, m_device_name, m_local_ip, Defaults::SIGNALING_PORT, now
         );
+        Protocol::sign_message(msg);
         std::string msg_str = msg.dump();
 
         // 发送组播消息
@@ -293,6 +295,11 @@ void DeviceDiscovery::recv_loop() {
         // 解析JSON消息
         try {
             json msg = json::parse(buffer);
+
+            // MAC 校验: 丢弃伪造/篡改的消息
+            if (!Protocol::verify_message(msg)) {
+                continue;
+            }
 
             // 检查消息类型
             std::string type = msg.value("type", "");
