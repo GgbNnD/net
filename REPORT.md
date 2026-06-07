@@ -2,9 +2,9 @@
 
 ## 项目概述
 
-本项目是一个跨平台（Linux/Windows/macOS）的局域网 P2P 文件传输工具，采用 C++17 实现，前端为微信风格的聊天 Web UI。核心功能包括：UDP 组播自动发现、TCP 滑动窗口文件传输、MD5 完整性校验、MD5 报文鉴别码(MAC)防伪造、文本聊天、设备持久化。
+本项目是一个跨平台（Linux/Windows/macOS）的局域网 P2P 文件传输工具，采用 C++17 实现，前端为微信风格的聊天 Web UI。核心功能包括：UDP 组播自动发现、ECDH 密钥交换、MAC 报文防伪造、TCP 滑动窗口文件传输（zlib 压缩）、MD5 完整性校验、文本聊天、设备持久化。
 
-**技术栈**: C++17 + CMake + nlohmann/json + HTML5/CSS/JS（无框架）
+**技术栈**: C++17 + CMake + nlohmann/json + OpenSSL + zlib + HTML5/CSS/JS（无框架）
 
 ---
 
@@ -20,7 +20,11 @@
 │   Discovery (8888)  │  Signaling (8889)  │  Transfer (8890) │
 │   UDP 组播自动发现   │  TCP 信令协商       │  TCP 滑动窗口     │
 │   + TCP DEVICE_HELLO │  + 文本聊天         │  + MD5 校验      │
-│   + MAC 防伪造       │  + MAC 防伪造       │  + MAC 防伪造    │
+│                      │                     │  + zlib 压缩     │
+├──────────────────────────────────────────────────────────────┤
+│                    Security Layer                             │
+│   MAC 报文鉴别码    │  ECDH 密钥交换 (secp256r1)              │
+│   MD5 + 共享密钥    │  PeerKey 对端密钥管理                   │
 ├──────────────────────────────────────────────────────────────┤
 │                      Common Layer                            │
 │   跨平台 Socket 封装 │ JSON 协议 │ UUID/MD5/Base64 工具      │
@@ -129,6 +133,55 @@ MAC = MD5(json_payload_string + shared_secret)
 - **防重放**：可结合 `timestamp` 字段（`DEVICE_BROADCAST` 已包含时间戳）
 - **签名覆盖**：`sign_message()` 先移除已有 `mac` 字段再计算，避免递归/篡改攻击
 
+### 2.4 ECDH 密钥交换
+
+为了解决硬编码共享密钥的问题，引入基于 OpenSSL 的 ECDH 密钥协商：
+
+**算法**：`secp256r1` (NIST P-256) 椭圆曲线 Diffie-Hellman
+
+**密钥生成** (`Utils::generate_ecdh_keypair`):
+```
+EVP_PKEY_keygen(EVP_PKEY_EC, NID_X9_62_prime256v1)
+→ DER 编码 → Base64 编码 → 公钥/私钥字符串
+```
+
+**共享密钥计算** (`Utils::compute_ecdh_shared`):
+```
+1. Base64 解码本地私钥和远端公钥 → DER
+2. d2i_AutoPrivateKey / d2i_PUBKEY 加载密钥
+3. EVP_PKEY_derive() 计算共享密钥
+4. MD5(shared_raw) → 64 字符 hex 子密钥
+```
+
+**密钥交换流程**:
+```
+A                                          B
+  │ 生成 ECDH 密钥对                         │ 生成 ECDH 密钥对
+  │                                         │
+  │ DEVICE_HELLO (含 public_key_A)          │
+  │ ────────────────────────────────────→   │
+  │                                         │ compute_ecdh_shared(priv_B, pub_A)
+  │                                         │ PeerKey::store(A.ip, shared_B)
+  │                                         │
+  │              DEVICE_HELLO (含 public_key_B)
+  │   ←───────────────────────────────────  │
+  │ compute_ecdh_shared(priv_A, pub_B)       │
+  │ PeerKey::store(B.ip, shared_A)           │
+  │                                         │
+  │          后续消息 MAC = MD5(payload +     │
+  │          DEFAULT_SECRET + shared_AB)     │
+```
+
+**存储** (`src/common/peer_key.h/cpp`):
+- `PeerKey::store(ip, shared_secret)` — 按 IP 存储对端共享密钥
+- `PeerKey::get(ip)` — 查询指定 IP 的密钥
+- 线程安全：内部使用 `std::mutex` 保护
+
+**MAC 签名增强**:
+- `sign_message(msg, peer_ip)` 调用 `mac_secret_for(ip)` 获取 `DEFAULT_SECRET + peer_key`
+- UDP 广播使用空 IP，仅用默认密钥
+- 向后兼容：无 ECDH 密钥时回退到纯 DEFAULT_SECRET
+
 ---
 
 ## 三、核心算法与数据结构
@@ -195,6 +248,44 @@ m_received_bitmap[chunk.chunk_index] = true;
 - 已存在的完整分片在位图中标记为已接收
 - `get_max_contiguous_chunk()` 扫描位图找最长连续前缀 → 发送方据此 `resume_from_chunk`
 
+### 3.3 zlib 文件压缩传输
+
+基于 zlib 的透明文件压缩，减少传输数据量：
+
+**发送方** (`TransferSender::send_file`):
+```
+1. 读取原始文件到内存
+2. Utils::compress_data(raw) → 调用 zlib compress()
+3. 若压缩后体积 < 原始体积:
+   - 写入临时文件 /tmp/p2p_send_compressed_{file_id}
+   - 使用压缩后的 file_size / total_chunks
+   - FILE_HEADER 设置 compression = "zlib"
+4. 否则按原始文件传输
+```
+
+**接收方** (`TransferReceiver::handle_receive`):
+```
+1. 接收所有分片 → commit_received_file()
+2. 若 meta.compression == "zlib":
+   - 读取已提交文件到内存
+   - Utils::decompress_data(compressed) → 调用 zlib uncompress()
+   - 覆盖写回解压后的原始数据
+3. MD5 校验（基于解压后的数据）
+```
+
+**压缩函数实现** (`Utils::compress_data` / `decompress_data`):
+- `compress() / uncompress()` 单次调用接口
+- `decompress_data` 使用倍增缓冲策略（初始 4x，翻倍至成功）处理未知解压大小
+- 失败返回空字符串，调用方回退处理
+
+**临时文件生命周期**:
+```
+接收开始 → 创建 {filename}.tmp → pwrite 写入各分片 → 全部接收完成
+→ commit (rename .tmp → filename) → 解压缩覆盖 → MD5 校验
+→ 校验通过 → 完成
+→ 校验失败 → 保留文件 (供检查)
+→ 取消 → unlink(.tmp)
+
 **临时文件生命周期**:
 ```
 接收开始 → 创建 {filename}.tmp → pwrite 写入各分片 → 全部接收完成
@@ -203,7 +294,7 @@ m_received_bitmap[chunk.chunk_index] = true;
 → 取消 → unlink(.tmp)
 ```
 
-### 3.3 设备发现机制
+### 3.4 设备发现机制
 
 采用双层发现：UDP 组播 + TCP DEVICE_HELLO 握手。
 
@@ -244,7 +335,7 @@ A 的探活线程 (每 5 秒)                     B 的信令服务器 (端口 8
 3. B 收到 DEVICE_HELLO → B 的 DeviceManager 添加/更新 A（`manual=true`，持久化）
 4. B 的探活线程也会探测 A → 双向建立
 
-### 3.4 设备持久化
+### 3.5 设备持久化
 
 `known_devices.json` 存储手动添加和通过 DEVICE_HELLO 互相发现的设备：
 
@@ -416,11 +507,12 @@ struct MD5Context {
 ## 八、已知限制与改进方向
 
 1. **组播依赖路由配置**: 需手动 `ip route add`，可考虑自动检测并提示
-2. **共享密钥硬编码**: MAC 密钥编译期固定，可改为配置文件或运行时协商
-3. **无密钥交换**: 无 DH/DHE 密钥协商，无法对抗中间人攻击
-4. **大文件 base64 上传**: base64 编码增加 33% 体积，大文件有 OOM 风险
-5. **HTTP 明文传输**: Web 界面无 HTTPS，局域网可接受
-6. **无用户认证**: 无密码或密钥验证，信任局域网内设备
-7. **短连接模型**: 信令通道每次消息新建 TCP 连接，高频消息效率低
-8. **单方向文件浏览**: 只能推送文件，无法浏览远端文件列表
-9. **Web 界面无滚动加载**: 长对话历史全部渲染在 DOM 中
+2. **大文件 base64 上传**: base64 编码增加 33% 体积，大文件有 OOM 风险
+3. **压缩需全量加载内存**: 发送方和接收方压缩/解压时需将整个文件读入内存，超大文件（>1GB）可能 OOM
+4. **ECDH 依赖 OpenSSL**: 增加编译依赖，Windows 平台需额外安装
+5. **无密钥交换持久化**: ECDH 共享密钥不持久化，重启后需重新协商（通过 DEVICE_HELLO 自动完成）
+6. **HTTP 明文传输**: Web 界面无 HTTPS，局域网可接受
+7. **无用户认证**: 无密码或密钥验证，MAC 仅防伪造不防中间人
+8. **短连接模型**: 信令通道每次消息新建 TCP 连接，高频消息效率低
+9. **单方向文件浏览**: 只能推送文件，无法浏览远端文件列表
+10. **Web 界面无滚动加载**: 长对话历史全部渲染在 DOM 中
