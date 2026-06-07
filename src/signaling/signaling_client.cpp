@@ -27,7 +27,8 @@ bool SignalingClient::test_connect(const std::string& target_ip,
                                      const std::string& my_name,
                                      const std::string& my_ip,
                                      uint16_t my_port,
-                                     uint32_t timeout_ms) {
+                                     uint32_t timeout_ms,
+                                     const std::string& my_public_key) {
     SOCKET_FD sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock == INVALID_SOCKET_FD) return false;
 
@@ -52,7 +53,7 @@ bool SignalingClient::test_connect(const std::string& target_ip,
     } else {
         // 立即连接成功, 发送 DEVICE_HELLO
         NetworkUtils::set_blocking(sock);
-        json hello = Protocol::build_device_hello(my_id, my_name, my_ip, my_port);
+        json hello = Protocol::build_device_hello(my_id, my_name, my_ip, my_port, my_public_key);
         Protocol::send_json_message(sock, hello);
         // 优雅关闭确保数据被对方收到
         shutdown(sock, SHUT_WR);
@@ -84,7 +85,7 @@ bool SignalingClient::test_connect(const std::string& target_ip,
     if (ok) {
         // 连接成功, 发送 DEVICE_HELLO 让对方发现本机
         NetworkUtils::set_blocking(sock);
-        json hello = Protocol::build_device_hello(my_id, my_name, my_ip, my_port);
+        json hello = Protocol::build_device_hello(my_id, my_name, my_ip, my_port, my_public_key);
         Protocol::send_json_message(sock, hello);
         // 优雅关闭确保数据被对方收到
         shutdown(sock, SHUT_WR);
@@ -129,7 +130,7 @@ bool SignalingClient::send_request(const std::string& target_ip,
     }
 
     // 2. 发送请求消息
-    if (!Protocol::send_json_message(sock, request)) {
+    if (!Protocol::send_json_message(sock, request, target_ip)) {
         std::cerr << "[信令客户端] 发送请求失败" << std::endl;
         CLOSE_SOCKET(sock);
         return false;
@@ -140,7 +141,7 @@ bool SignalingClient::send_request(const std::string& target_ip,
               << std::endl;
 
     // 3. 接收响应消息
-    if (!Protocol::recv_json_message(sock, response)) {
+    if (!Protocol::recv_json_message(sock, response, target_ip)) {
         std::cerr << "[信令客户端] 接收响应失败" << std::endl;
         CLOSE_SOCKET(sock);
         return false;

@@ -5,6 +5,7 @@
 #include "common/protocol.h"
 #include "common/platform.h"
 #include "common/utils.h"
+#include "common/peer_key.h"
 #include <cstring>
 #include <vector>
 #include <cstdint>
@@ -12,6 +13,12 @@
 namespace Protocol {
 
 constexpr const char* MAC_SECRET = "p2p-transfer-secret-2024";
+
+static std::string mac_secret_for(const std::string& peer_ip) {
+    std::string peer = PeerKey::get(peer_ip);
+    if (peer.empty()) return MAC_SECRET;
+    return std::string(MAC_SECRET) + peer;
+}
 
 // ============================================================
 // 协议消息构建函数
@@ -42,13 +49,17 @@ json build_device_offline(const std::string& device_id) {
 json build_device_hello(const std::string& device_id,
                          const std::string& device_name,
                          const std::string& ip,
-                         uint16_t port) {
+                         uint16_t port,
+                         const std::string& public_key) {
     json msg;
     msg["type"]        = MsgType::DEVICE_HELLO;
     msg["device_id"]   = device_id;
     msg["device_name"] = device_name;
     msg["ip"]          = ip;
     msg["port"]        = port;
+    if (!public_key.empty()) {
+        msg["public_key"] = public_key;
+    }
     return msg;
 }
 
@@ -73,6 +84,7 @@ json build_file_request(const std::string& file_id,
     msg["checksum"]     = checksum;
     msg["chunk_size"]   = chunk_size;
     msg["total_chunks"] = total_chunks;
+    msg["compression"]  = "zlib";
     return msg;
 }
 
@@ -111,26 +123,24 @@ json build_control_message(const std::string& type,
 }
 
 // ============================================================
-// MAC 报文鉴别码 (MD5 + 共享密钥)
+// MAC 报文鉴别码 (MD5 + 共享密钥 + 对端 ECDH 子密钥)
 // ============================================================
 
-void sign_message(json& msg) {
+void sign_message(json& msg, const std::string& peer_ip) {
     json canonical = msg;
     canonical.erase("mac");
 
+    std::string secret = mac_secret_for(peer_ip);
     std::string payload = canonical.dump();
     std::string mac = Utils::md5_data(
-        reinterpret_cast<const uint8_t*>(payload.data()), payload.size());
-    mac = Utils::md5_data(
-        reinterpret_cast<const uint8_t*>((payload + MAC_SECRET).data()),
-        payload.size() + strlen(MAC_SECRET));
+        reinterpret_cast<const uint8_t*>((payload + secret).data()),
+        payload.size() + secret.size());
 
     msg["mac"] = mac;
 }
 
-bool verify_message(const json& msg) {
+bool verify_message(const json& msg, const std::string& peer_ip) {
     if (!msg.contains("mac")) {
-        // 兼容旧版本: 无 MAC 的消息仍接受
         return true;
     }
 
@@ -139,51 +149,29 @@ bool verify_message(const json& msg) {
     canonical.erase("mac");
 
     std::string payload = canonical.dump();
+    std::string secret = mac_secret_for(peer_ip);
     std::string expected_mac = Utils::md5_data(
-        reinterpret_cast<const uint8_t*>((payload + MAC_SECRET).data()),
-        payload.size() + strlen(MAC_SECRET));
+        reinterpret_cast<const uint8_t*>((payload + secret).data()),
+        payload.size() + secret.size());
 
     return received_mac == expected_mac;
 }
 
 // ============================================================
-// 带长度前缀的JSON消息收发
-// 格式: [4字节消息体长度 (网络字节序, uint32_t)] + [JSON字符串 (UTF-8)]
+// 带长度前缀的JSON消息收发 (内部实现)
 // ============================================================
 
-/**
- * @brief 发送JSON消息 (带长度前缀, 防止TCP粘包)
- * @param sock socket描述符
- * @param msg  JSON消息对象
- * @return 是否发送成功
- *
- * 发送流程:
- * 1. 将JSON对象序列化为字符串
- * 2. 计算字符串长度, 转换为4字节的网络字节序 (大端)
- * 3. 先发送4字节长度, 再发送JSON字符串
- *
- * 为什么需要长度前缀?
- * TCP是流式协议, 发送方连续发送两条消息时, 接收方可能一次recv收到两条。
- * 有了长度前缀后, 接收方先读4字节获取长度, 再精确读取该长度的数据,
- * 剩余数据保留在缓冲区供下一条消息读取。
- */
-bool send_json_message(SOCKET_FD sock, const json& msg) {
-    json signed_msg = msg;
-    sign_message(signed_msg);
+static bool send_json_message_raw(SOCKET_FD sock, const json& msg) {
+    std::string json_str = msg.dump();
 
-    std::string json_str = signed_msg.dump();
-
-    // 构造长度前缀 + 数据体
     uint32_t data_len = static_cast<uint32_t>(json_str.size());
-    uint32_t net_len = htonl(data_len);  // 主机字节序 -> 网络字节序
+    uint32_t net_len = htonl(data_len);
 
-    // 先发送4字节长度
     if (SOCK_SEND(sock, reinterpret_cast<const char*>(&net_len),
                   4, 0) != 4) {
         return false;
     }
 
-    // 再发送JSON数据
     size_t total_sent = 0;
     while (total_sent < json_str.size()) {
         auto sent = SOCK_SEND(sock, json_str.data() + total_sent,
@@ -197,38 +185,24 @@ bool send_json_message(SOCKET_FD sock, const json& msg) {
     return true;
 }
 
-/**
- * @brief 接收JSON消息 (带长度前缀解析)
- * @param sock socket描述符
- * @param msg  输出: 解析后的JSON对象
- * @return 是否接收成功
- *
- * 接收流程:
- * 1. 先读取4字节, 解析为网络字节序的长度值
- * 2. 精确读取指定长度的JSON数据
- * 3. 将JSON字符串反序列化为JSON对象
- */
-bool recv_json_message(SOCKET_FD sock, json& msg) {
-    // 1. 读取4字节长度前缀
+static bool recv_json_message_raw(SOCKET_FD sock, json& msg) {
     uint32_t net_len;
     size_t total_read = 0;
     while (total_read < 4) {
         auto n = SOCK_RECV(sock, reinterpret_cast<char*>(&net_len) + total_read,
                            static_cast<int>(4 - total_read), 0);
         if (n <= 0) {
-            return false;  // 连接关闭或出错
+            return false;
         }
         total_read += n;
     }
     uint32_t data_len = ntohl(net_len);
 
-    // 安全检查: 消息长度不能过大 (防止恶意攻击或协议错误)
-    constexpr uint32_t MAX_MSG_SIZE = 10 * 1024 * 1024;  // 10MB
+    constexpr uint32_t MAX_MSG_SIZE = 10 * 1024 * 1024;
     if (data_len > MAX_MSG_SIZE) {
         return false;
     }
 
-    // 2. 读取JSON数据体
     std::vector<char> buffer(data_len + 1);
     total_read = 0;
     while (total_read < data_len) {
@@ -241,15 +215,40 @@ bool recv_json_message(SOCKET_FD sock, json& msg) {
     }
     buffer[data_len] = '\0';
 
-    // 3. 解析JSON
     try {
         msg = json::parse(buffer.data());
-        // 4. 校验 MAC
-        if (!verify_message(msg)) return false;
         return true;
     } catch (const json::exception&) {
         return false;
     }
+}
+
+// ============================================================
+// 公开接口
+// ============================================================
+
+bool send_json_message(SOCKET_FD sock, const json& msg) {
+    json signed_msg = msg;
+    sign_message(signed_msg, "");
+    return send_json_message_raw(sock, signed_msg);
+}
+
+bool send_json_message(SOCKET_FD sock, const json& msg, const std::string& peer_ip) {
+    json signed_msg = msg;
+    sign_message(signed_msg, peer_ip);
+    return send_json_message_raw(sock, signed_msg);
+}
+
+bool recv_json_message(SOCKET_FD sock, json& msg) {
+    if (!recv_json_message_raw(sock, msg)) return false;
+    if (!verify_message(msg, "")) return false;
+    return true;
+}
+
+bool recv_json_message(SOCKET_FD sock, json& msg, const std::string& peer_ip) {
+    if (!recv_json_message_raw(sock, msg)) return false;
+    if (!verify_message(msg, peer_ip)) return false;
+    return true;
 }
 
 } // namespace Protocol

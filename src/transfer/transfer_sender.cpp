@@ -7,6 +7,7 @@
 #include "common/utils.h"
 #include "signaling/signaling_client.h"
 #include <iostream>
+#include <fstream>
 #include <chrono>
 #include <algorithm>
 
@@ -59,10 +60,37 @@ bool TransferSender::send_file(const std::string& target_ip,
     FileMeta meta;
     meta.file_id      = file_id;
     meta.filename     = Utils::get_filename(file_path);
-    meta.file_size    = io.get_file_size();
-    meta.checksum     = Utils::md5_file(file_path);
     meta.chunk_size   = Defaults::CHUNK_SIZE;
-    meta.total_chunks = io.get_total_chunks();
+
+    // 压缩文件数据
+    std::string temp_path;
+    bool compressed = false;
+    {
+        std::ifstream src(file_path, std::ios::binary);
+        std::string raw((std::istreambuf_iterator<char>(src)),
+                        std::istreambuf_iterator<char>());
+        src.close();
+
+        std::string compressed_data = Utils::compress_data(raw);
+        if (!compressed_data.empty() && compressed_data.size() < raw.size()) {
+            temp_path = "/tmp/p2p_send_compressed_" + file_id;
+            std::ofstream tmp(temp_path, std::ios::binary);
+            tmp.write(compressed_data.data(), compressed_data.size());
+            tmp.close();
+            meta.file_size    = compressed_data.size();
+            meta.total_chunks = (static_cast<uint32_t>(compressed_data.size()) + Defaults::CHUNK_SIZE - 1)
+                                / Defaults::CHUNK_SIZE;
+            compressed = true;
+            std::cout << "[发送] zlib 压缩: " << Utils::format_file_size(raw.size())
+                      << " → " << Utils::format_file_size(meta.file_size)
+                      << " (" << (100 - meta.file_size * 100 / raw.size()) << "% 节省)" << std::endl;
+        } else {
+            meta.file_size    = io.get_file_size();
+            meta.total_chunks = io.get_total_chunks();
+        }
+    }
+
+    meta.checksum     = Utils::md5_file(file_path);
 
     std::cout << "[发送] 准备发送: " << meta.filename
               << " (" << Utils::format_file_size(meta.file_size) << ")"
@@ -112,9 +140,13 @@ bool TransferSender::send_file(const std::string& target_ip,
     }
 
     // 4. 发送文件数据分片 (滑动窗口)
-    bool success = send_chunks(sock, io, meta, window_size, callback);
+    FileChunkIO send_io(compressed ? temp_path : file_path, Defaults::CHUNK_SIZE, true);
+    bool success = send_chunks(sock, send_io, meta, window_size, callback);
 
-    // 5. 关闭连接
+    // 5. 清理临时文件 + 关闭连接
+    if (compressed && !temp_path.empty()) {
+        std::remove(temp_path.c_str());
+    }
     CLOSE_SOCKET(sock);
     m_transferring = false;
 
@@ -139,6 +171,7 @@ bool TransferSender::send_file_header(SOCKET_FD sock, const FileMeta& meta) {
     header["checksum"]     = meta.checksum;
     header["chunk_size"]   = meta.chunk_size;
     header["total_chunks"] = meta.total_chunks;
+    header["compression"]  = "zlib";
 
     // 发送类型标记 'J' (JSON消息)
     char type_marker = 'J';

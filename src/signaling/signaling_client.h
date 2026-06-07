@@ -76,7 +76,8 @@ public:
                              const std::string& my_name,
                              const std::string& my_ip,
                              uint16_t my_port,
-                             uint32_t timeout_ms = 1000);
+                             uint32_t timeout_ms = 1000,
+                             const std::string& my_public_key = "");
 
 private:
     /**

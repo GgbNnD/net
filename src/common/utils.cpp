@@ -483,4 +483,162 @@ std::string url_decode(const std::string& input) {
     return result;
 }
 
+// ----------------------------------------------------------
+// ECDH 密钥交换
+// ----------------------------------------------------------
+
+#include <openssl/evp.h>
+#include <openssl/ec.h>
+#include <openssl/pem.h>
+#include <openssl/err.h>
+#include <openssl/bio.h>
+#include <openssl/bn.h>
+
+bool generate_ecdh_keypair(std::string& public_key_b64, std::string& private_key_b64) {
+    EVP_PKEY* pkey = nullptr;
+    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, nullptr);
+    if (!ctx) return false;
+
+    bool ok = false;
+    if (EVP_PKEY_keygen_init(ctx) > 0 &&
+        EVP_PKEY_CTX_set_ec_paramgen_curve_nid(ctx, NID_X9_62_prime256v1) > 0 &&
+        EVP_PKEY_keygen(ctx, &pkey) > 0) {
+
+        BIO* pub_bio = BIO_new(BIO_s_mem());
+        BIO* priv_bio = BIO_new(BIO_s_mem());
+        if (pub_bio && priv_bio) {
+            if (i2d_PUBKEY_bio(pub_bio, pkey) > 0 && i2d_PrivateKey_bio(priv_bio, pkey) > 0) {
+                char* pub_data = nullptr;
+                char* priv_data = nullptr;
+                long pub_len = BIO_get_mem_data(pub_bio, &pub_data);
+                long priv_len = BIO_get_mem_data(priv_bio, &priv_data);
+                if (pub_len > 0 && priv_len > 0) {
+                    // DER → Base64
+                    static const char* b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+                    public_key_b64.clear();
+                    private_key_b64.clear();
+                    auto encode = [&](const unsigned char* d, long len, std::string& out) {
+                        for (long i = 0; i < len; i += 3) {
+                            unsigned char a = d[i];
+                            unsigned char b = (i + 1 < len) ? d[i + 1] : 0;
+                            unsigned char c = (i + 2 < len) ? d[i + 2] : 0;
+                            out += b64[a >> 2];
+                            out += b64[((a & 0x03) << 4) | (b >> 4)];
+                            out += (i + 1 < len) ? b64[((b & 0x0f) << 2) | (c >> 6)] : '=';
+                            out += (i + 2 < len) ? b64[c & 0x3f] : '=';
+                        }
+                    };
+                    encode((unsigned char*)pub_data, pub_len, public_key_b64);
+                    encode((unsigned char*)priv_data, priv_len, private_key_b64);
+                    ok = true;
+                }
+            }
+            if (pub_bio) BIO_free(pub_bio);
+            if (priv_bio) BIO_free(priv_bio);
+        }
+    }
+
+    EVP_PKEY_free(pkey);
+    EVP_PKEY_CTX_free(ctx);
+    return ok;
+}
+
+bool compute_ecdh_shared(const std::string& local_private_b64,
+                         const std::string& remote_public_b64,
+                         std::string& shared_secret_hex) {
+    // Base64 decode
+    auto b64_decode = [](const std::string& in) -> std::string {
+        static const std::string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        std::string out;
+        int val = 0, bits = -8;
+        for (unsigned char c : in) {
+            if (c == '=') break;
+            auto p = chars.find(c);
+            if (p == std::string::npos) continue;
+            val = (val << 6) | (int)p;
+            bits += 6;
+            if (bits >= 0) {
+                out += (char)((val >> bits) & 0xff);
+                bits -= 8;
+            }
+        }
+        return out;
+    };
+
+    std::string priv_der = b64_decode(local_private_b64);
+    std::string pub_der = b64_decode(remote_public_b64);
+
+    // Load private key
+    const unsigned char* priv_ptr = (const unsigned char*)priv_der.data();
+    EVP_PKEY* priv_key = d2i_AutoPrivateKey(nullptr, &priv_ptr, (long)priv_der.size());
+    if (!priv_key) return false;
+
+    // Load public key
+    const unsigned char* pub_ptr = (const unsigned char*)pub_der.data();
+    EVP_PKEY* pub_key = d2i_PUBKEY(nullptr, &pub_ptr, (long)pub_der.size());
+    if (!pub_key) {
+        EVP_PKEY_free(priv_key);
+        return false;
+    }
+
+    // Compute shared secret
+    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(priv_key, nullptr);
+    bool ok = false;
+    if (ctx && EVP_PKEY_derive_init(ctx) > 0 && EVP_PKEY_derive_set_peer(ctx, pub_key) > 0) {
+        size_t secret_len = 0;
+        if (EVP_PKEY_derive(ctx, nullptr, &secret_len) > 0) {
+            std::vector<unsigned char> secret(secret_len);
+            if (EVP_PKEY_derive(ctx, secret.data(), &secret_len) > 0) {
+                shared_secret_hex = md5_data(secret.data(), secret_len);
+                ok = true;
+            }
+        }
+    }
+
+    EVP_PKEY_CTX_free(ctx);
+    EVP_PKEY_free(pub_key);
+    EVP_PKEY_free(priv_key);
+    return ok;
+}
+
+// ----------------------------------------------------------
+// zlib 压缩/解压缩
+// ----------------------------------------------------------
+
+#include <zlib.h>
+
+std::string compress_data(const std::string& input) {
+    if (input.empty()) return {};
+
+    uLongf dest_len = compressBound(static_cast<uLong>(input.size()));
+    std::vector<Bytef> dest(dest_len);
+
+    if (compress(dest.data(), &dest_len,
+                 reinterpret_cast<const Bytef*>(input.data()),
+                 static_cast<uLong>(input.size())) != Z_OK) {
+        return {};
+    }
+
+    return std::string(reinterpret_cast<char*>(dest.data()), dest_len);
+}
+
+std::string decompress_data(const std::string& input) {
+    if (input.empty()) return {};
+
+    uLongf dest_len = static_cast<uLong>(input.size()) * 4;
+    std::vector<Bytef> dest(dest_len);
+    int ret;
+
+    while ((ret = uncompress(dest.data(), &dest_len,
+                              reinterpret_cast<const Bytef*>(input.data()),
+                              static_cast<uLong>(input.size()))) == Z_BUF_ERROR) {
+        dest_len *= 2;
+        dest.resize(dest_len);
+    }
+
+    if (ret != Z_OK) return {};
+
+    return std::string(reinterpret_cast<char*>(dest.data()), dest_len);
+}
+
 } // namespace Utils

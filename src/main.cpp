@@ -28,6 +28,7 @@
 #include "transfer/transfer_receiver.h"
 #include "transfer/transfer_manager.h"
 #include "web/http_server.h"
+#include "common/peer_key.h"
 
 // ----------------------------------------------------------
 // 全局变量
@@ -41,6 +42,10 @@ static std::unique_ptr<TransferManager>  g_transfer_manager;
 static std::unique_ptr<HttpServer>       g_http_server;
 static std::vector<std::thread>          g_transfer_threads;
 static std::thread                       g_peer_probe_thread;
+
+// ECDH 密钥对
+static std::string g_ecdh_public_key;
+static std::string g_ecdh_private_key;
 
 // 收到的文本消息缓存 (sender_ip -> [{text, time}])
 static std::mutex                                  g_rcv_msg_mutex;
@@ -475,6 +480,13 @@ bool init_discovery_service() {
     std::cout << "[系统] 设备ID:   " << g_device_id << std::endl;
     std::cout << "[系统] 设备名称: " << g_device_name << std::endl;
 
+    // 生成 ECDH 密钥对 (用于协商对端 MAC 子密钥)
+    if (!Utils::generate_ecdh_keypair(g_ecdh_public_key, g_ecdh_private_key)) {
+        std::cerr << "[系统] ECDH 密钥生成失败, 密钥交换功能不可用" << std::endl;
+    } else {
+        std::cout << "[系统] ECDH 密钥对已生成" << std::endl;
+    }
+
     g_device_manager = std::make_unique<DeviceManager>(g_device_id);
     g_device_manager->set_on_device_online([](const DeviceInfo& device) {
         std::cout << "[事件] 设备上线: " << device.name
@@ -546,9 +558,9 @@ bool init_signaling_service() {
                   << std::endl;
     });
 
-    // 设置 TCP 握手回调: 自动将探测方加入设备列表 (互相发现)
+    // 设置 TCP 握手回调: 自动将探测方加入设备列表 + ECDH 密钥交换
     g_signaling_server->set_on_device_hello([](const json& hello,
-                                                const std::string& sender_ip) {
+                                                 const std::string& sender_ip) {
         if (!g_device_manager) return;
         std::string remote_id   = hello.value("device_id", "");
         std::string remote_name = hello.value("device_name", sender_ip);
@@ -558,6 +570,16 @@ bool init_signaling_service() {
         // 跳过本机IP
         auto local_ips = NetworkUtils::get_local_ips();
         if (std::find(local_ips.begin(), local_ips.end(), remote_ip) != local_ips.end()) return;
+
+        // ECDH 密钥交换: 提取对端公钥, 计算共享密钥
+        std::string remote_pub = hello.value("public_key", "");
+        if (!remote_pub.empty() && !g_ecdh_private_key.empty()) {
+            std::string shared;
+            if (Utils::compute_ecdh_shared(g_ecdh_private_key, remote_pub, shared)) {
+                PeerKey::store(remote_ip, shared);
+                std::cout << "[密钥] 与 " << remote_ip << " 协商 ECDH 密钥成功" << std::endl;
+            }
+        }
 
         std::string existing_id = g_device_manager->find_device_id_by_ip(remote_ip);
         if (!existing_id.empty()) {
@@ -1142,7 +1164,8 @@ int main() {
                     d.ip, d.port,
                     g_device_id, g_device_name,
                     g_discovery ? g_discovery->get_local_ip() : "127.0.0.1",
-                    Defaults::SIGNALING_PORT, 1000);
+                    Defaults::SIGNALING_PORT, 1000,
+                    g_ecdh_public_key);
                 if (alive) {
                     now_online.insert(d.id);
                     DeviceInfo updated = d;

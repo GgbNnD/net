@@ -228,7 +228,7 @@ void SignalingServer::handle_client(SOCKET_FD client_sock, const std::string& cl
 
     // 接收JSON消息 (TCP探活等连接可能不发数据, 静默关闭)
     json msg;
-    if (!Protocol::recv_json_message(client_sock, msg)) {
+    if (!Protocol::recv_json_message(client_sock, msg, client_ip)) {
         CLOSE_SOCKET(client_sock);
         return;
     }
@@ -244,7 +244,7 @@ void SignalingServer::handle_client(SOCKET_FD client_sock, const std::string& cl
             ResponseSender sender = [client_sock, client_ip](const json& response) -> bool {
                 std::cout << "[信令] 发送响应给 " << client_ip
                           << ": " << response.value("status", "") << std::endl;
-                return Protocol::send_json_message(client_sock, response);
+                return Protocol::send_json_message(client_sock, response, client_ip);
             };
 
             m_file_request_cb(msg, client_ip, sender);
@@ -254,7 +254,7 @@ void SignalingServer::handle_client(SOCKET_FD client_sock, const std::string& cl
             json reject = Protocol::build_file_response(
                 msg.value("file_id", ""), ResponseStatus::REJECT, 0, "未配置处理回调"
             );
-            Protocol::send_json_message(client_sock, reject);
+            Protocol::send_json_message(client_sock, reject, client_ip);
         }
 
     } else if (type == MsgType::DEVICE_HELLO) {
@@ -268,7 +268,7 @@ void SignalingServer::handle_client(SOCKET_FD client_sock, const std::string& cl
         json ack;
         ack["type"]   = "TEXT_ACK";
         ack["status"] = "ok";
-        Protocol::send_json_message(client_sock, ack);
+        Protocol::send_json_message(client_sock, ack, client_ip);
     } else if (type == MsgType::TRANSFER_CANCEL ||
                type == MsgType::TRANSFER_PAUSE  ||
                type == MsgType::TRANSFER_RESUME ||
@@ -280,7 +280,7 @@ void SignalingServer::handle_client(SOCKET_FD client_sock, const std::string& cl
         json ack;
         ack["type"]   = "CONTROL_ACK";
         ack["status"] = "ok";
-        Protocol::send_json_message(client_sock, ack);
+        Protocol::send_json_message(client_sock, ack, client_ip);
     } else {
         std::cerr << "[信令] 未知消息类型: " << type << std::endl;
     }

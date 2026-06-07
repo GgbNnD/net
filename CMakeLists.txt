@@ -36,6 +36,9 @@ else()
     set(PLATFORM_LIBS pthread)
 endif()
 
+find_package(OpenSSL REQUIRED)
+find_package(ZLIB REQUIRED)
+
 # ----------------------------------------------------------
 # 收集所有源文件
 # ----------------------------------------------------------
@@ -58,6 +61,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 )
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${PLATFORM_LIBS}
+    OpenSSL::SSL OpenSSL::Crypto
+    ZLIB::ZLIB
 )
 
 # ----------------------------------------------------------

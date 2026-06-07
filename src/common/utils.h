@@ -107,4 +107,45 @@ std::string base64_decode(const std::string& input);
  */
 std::string url_decode(const std::string& input);
 
+// ----------------------------------------------------------
+// ECDH 密钥交换 (基于 OpenSSL secp256r1)
+// ----------------------------------------------------------
+
+/**
+ * @brief 生成 ECDH 密钥对
+ * @param public_key_b64  输出: Base64 编码的公钥
+ * @param private_key_b64 输出: Base64 编码的私钥
+ * @return 是否成功
+ */
+bool generate_ecdh_keypair(std::string& public_key_b64, std::string& private_key_b64);
+
+/**
+ * @brief 计算 ECDH 共享密钥
+ * @param local_private_b64  本机私钥 (Base64)
+ * @param remote_public_b64  远程公钥 (Base64)
+ * @param shared_secret_hex  输出: 16 进制共享密钥 (32 字节 = 64 字符)
+ * @return 是否成功
+ */
+bool compute_ecdh_shared(const std::string& local_private_b64,
+                         const std::string& remote_public_b64,
+                         std::string& shared_secret_hex);
+
+// ----------------------------------------------------------
+// zlib 压缩/解压缩
+// ----------------------------------------------------------
+
+/**
+ * @brief zlib 压缩数据
+ * @param input 原始数据
+ * @return 压缩后的数据, 空字符串表示失败
+ */
+std::string compress_data(const std::string& input);
+
+/**
+ * @brief zlib 解压数据
+ * @param input 压缩数据
+ * @return 解压后的原始数据, 空字符串表示失败
+ */
+std::string decompress_data(const std::string& input);
+
 } // namespace Utils

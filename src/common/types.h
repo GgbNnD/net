@@ -35,6 +35,7 @@ struct FileMeta {
     std::string checksum;       // 文件MD5校验值 (用于传输后完整性验证)
     uint32_t    chunk_size;     // 每个分片的大小 (字节, 默认 65536 = 64KB)
     uint32_t    total_chunks;   // 总分片数 = ceil(file_size / chunk_size)
+    std::string compression;    // 压缩算法: "zlib" / "" (不压缩)
 };
 
 // ----------------------------------------------------------

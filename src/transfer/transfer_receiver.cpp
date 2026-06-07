@@ -6,6 +6,7 @@
 #include "common/protocol.h"
 #include "common/utils.h"
 #include <iostream>
+#include <fstream>
 #include <cstring>
 #include <algorithm>
 #include <fcntl.h>
@@ -260,6 +261,22 @@ void TransferReceiver::handle_receive(SOCKET_FD client_sock, const std::string& 
     if (final_contiguous == meta.total_chunks - 1) {
         // 提交文件 (重命名 .tmp)
         if (io.commit_received_file()) {
+            // 解压缩
+            if (meta.compression == "zlib") {
+                std::ifstream comp_file(save_path, std::ios::binary);
+                std::string comp_data((std::istreambuf_iterator<char>(comp_file)),
+                                      std::istreambuf_iterator<char>());
+                comp_file.close();
+                std::string raw_data = Utils::decompress_data(comp_data);
+                if (!raw_data.empty()) {
+                    std::ofstream out(save_path, std::ios::binary);
+                    out.write(raw_data.data(), raw_data.size());
+                    out.close();
+                    std::cout << "[接收] zlib 解压: " << Utils::format_file_size(comp_data.size())
+                              << " -> " << Utils::format_file_size(raw_data.size()) << std::endl;
+                }
+            }
+
             // 验证MD5
             std::string actual_checksum = Utils::md5_file(save_path);
             if (actual_checksum == meta.checksum || meta.checksum.empty()) {
@@ -314,6 +331,7 @@ bool TransferReceiver::recv_file_header(SOCKET_FD sock, FileMeta& meta) {
     meta.checksum     = header.value("checksum", "");
     meta.chunk_size   = header.value("chunk_size", uint32_t(0));
     meta.total_chunks = header.value("total_chunks", uint32_t(0));
+    meta.compression  = header.value("compression", "");
 
     std::cout << "[接收] 文件头: " << meta.filename
               << " size=" << meta.file_size

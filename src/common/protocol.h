@@ -85,12 +85,13 @@ json build_device_broadcast(const std::string& device_id,
 json build_device_offline(const std::string& device_id);
 
 /**
- * @brief 构建 TCP 探活握手消息 (互相发现)
+ * @brief 构建 TCP 探活握手消息 (互相发现 + ECDH 密钥交换)
  */
 json build_device_hello(const std::string& device_id,
                          const std::string& device_name,
                          const std::string& ip,
-                         uint16_t port);
+                         uint16_t port,
+                         const std::string& public_key = "");
 
 /**
  * @brief 构建文本聊天消息
@@ -185,6 +186,7 @@ json build_control_message(const std::string& type,
  * 发送前自动调用 sign_message() 附加 MAC 校验码
  */
 bool send_json_message(SOCKET_FD sock, const json& msg);
+bool send_json_message(SOCKET_FD sock, const json& msg, const std::string& peer_ip);
 
 /**
  * @brief 接收JSON消息 (带长度前缀解析)
@@ -195,17 +197,20 @@ bool send_json_message(SOCKET_FD sock, const json& msg);
  * 接收后自动校验 MAC, 校验失败返回 false
  */
 bool recv_json_message(SOCKET_FD sock, json& msg);
+bool recv_json_message(SOCKET_FD sock, json& msg, const std::string& peer_ip);
 
 /**
  * @brief 计算消息的 MAC (报文鉴别码)
- * MD5(消息JSON串 + 共享密钥), 防止伪造
+ * MD5(消息JSON串 + 共享密钥 + 对端子密钥), 防止伪造
+ * @param peer_ip 对端IP, 用于查找 ECDH 协商的子密钥
  */
-void sign_message(json& msg);
+void sign_message(json& msg, const std::string& peer_ip = "");
 
 /**
  * @brief 验证消息的 MAC
+ * @param peer_ip 发送方IP, 用于查找协商密钥
  * @return true=通过, false=伪造或被篡改
  */
-bool verify_message(const json& msg);
+bool verify_message(const json& msg, const std::string& peer_ip = "");
 
 } // namespace Protocol

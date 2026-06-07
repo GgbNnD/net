@@ -297,7 +297,7 @@ void DeviceDiscovery::recv_loop() {
             json msg = json::parse(buffer);
 
             // MAC 校验: 丢弃伪造/篡改的消息
-            if (!Protocol::verify_message(msg)) {
+            if (!Protocol::verify_message(msg, "")) {
                 continue;
             }
 
