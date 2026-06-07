@@ -1128,9 +1128,9 @@ int main() {
               << " | 发现端口: " << Defaults::DISCOVERY_PORT
               << " | 传输端口: " << Defaults::TRANSFER_PORT << std::endl;
 
-    // 启动手动添加设备的 TCP 探活线程 (互相发现)
+    // 启动 TCP 探活线程 (互相发现 + 保活)
     g_peer_probe_thread = std::thread([]() {
-        std::set<std::string> was_online;  // 上一轮在线的设备ID
+        std::set<std::string> was_online;
         while (g_running) {
             std::this_thread::sleep_for(std::chrono::seconds(5));
 
@@ -1138,8 +1138,6 @@ int main() {
             std::set<std::string> now_online;
             auto devices = g_device_manager->get_online_devices();
             for (const auto& d : devices) {
-                if (!d.manual) continue;
-
                 bool alive = SignalingClient::test_connect(
                     d.ip, d.port,
                     g_device_id, g_device_name,
@@ -1157,8 +1155,8 @@ int main() {
                 if (!now_online.count(id)) {
                     auto all = g_device_manager->get_online_devices();
                     for (const auto& d : all) {
-                        if (d.id == id && d.manual) {
-                            std::cout << "[事件] 设备离线: " << d.name
+                        if (d.id == id) {
+                            std::cout << "[事件] 设备断开: " << d.name
                                       << " (" << d.ip << ":" << d.port << ")" << std::endl;
                             break;
                         }
