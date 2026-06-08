@@ -493,6 +493,75 @@ std::string url_decode(const std::string& input) {
 #include <openssl/err.h>
 #include <openssl/bio.h>
 #include <openssl/bn.h>
+#include <openssl/rand.h>
+
+bool aes_gcm_encrypt(const std::string& plaintext, const std::string& key, std::string& out) {
+    if (key.size() != 32) return false;
+
+    unsigned char iv[12];
+    if (RAND_bytes(iv, sizeof(iv)) != 1) return false;
+
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) return false;
+
+    bool ok = false;
+    std::vector<unsigned char> ciphertext(plaintext.size() + 16);
+    int len = 0, cipher_len = 0;
+
+    if (EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) &&
+        EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, sizeof(iv), nullptr) &&
+        EVP_EncryptInit_ex(ctx, nullptr, nullptr, (unsigned char*)key.data(), iv) &&
+        EVP_EncryptUpdate(ctx, ciphertext.data(), &len,
+                          (unsigned char*)plaintext.data(), (int)plaintext.size())) {
+        cipher_len = len;
+        if (EVP_EncryptFinal_ex(ctx, ciphertext.data() + cipher_len, &len)) {
+            cipher_len += len;
+
+            unsigned char tag[16];
+            if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, sizeof(tag), tag)) {
+                out.assign((char*)iv, sizeof(iv));
+                out.append((char*)ciphertext.data(), cipher_len);
+                out.append((char*)tag, sizeof(tag));
+                ok = true;
+            }
+        }
+    }
+
+    EVP_CIPHER_CTX_free(ctx);
+    return ok;
+}
+
+bool aes_gcm_decrypt(const std::string& ciphertext_with_iv_tag, const std::string& key, std::string& out) {
+    if (ciphertext_with_iv_tag.size() < 28 || key.size() != 32) return false;
+
+    const unsigned char* iv = (unsigned char*)ciphertext_with_iv_tag.data();
+    size_t cipher_len = ciphertext_with_iv_tag.size() - 28;
+    const unsigned char* cipher = iv + 12;
+    const unsigned char* tag = iv + 12 + cipher_len;
+
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) return false;
+
+    bool ok = false;
+    std::vector<unsigned char> plaintext(cipher_len);
+    int len = 0, plain_len = 0;
+
+    if (EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) &&
+        EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, nullptr) &&
+        EVP_DecryptInit_ex(ctx, nullptr, nullptr, (unsigned char*)key.data(), iv) &&
+        EVP_DecryptUpdate(ctx, plaintext.data(), &len, cipher, (int)cipher_len)) {
+        plain_len = len;
+        if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, (void*)tag) &&
+            EVP_DecryptFinal_ex(ctx, plaintext.data() + plain_len, &len) > 0) {
+            plain_len += len;
+            out.assign((char*)plaintext.data(), plain_len);
+            ok = true;
+        }
+    }
+
+    EVP_CIPHER_CTX_free(ctx);
+    return ok;
+}
 
 bool generate_ecdh_keypair(std::string& public_key_b64, std::string& private_key_b64) {
     EVP_PKEY* pkey = nullptr;
@@ -545,7 +614,7 @@ bool generate_ecdh_keypair(std::string& public_key_b64, std::string& private_key
 
 bool compute_ecdh_shared(const std::string& local_private_b64,
                          const std::string& remote_public_b64,
-                         std::string& shared_secret_hex) {
+                         std::string& shared_secret) {
     // Base64 decode
     auto b64_decode = [](const std::string& in) -> std::string {
         static const std::string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -589,7 +658,7 @@ bool compute_ecdh_shared(const std::string& local_private_b64,
         if (EVP_PKEY_derive(ctx, nullptr, &secret_len) > 0) {
             std::vector<unsigned char> secret(secret_len);
             if (EVP_PKEY_derive(ctx, secret.data(), &secret_len) > 0) {
-                shared_secret_hex = md5_data(secret.data(), secret_len);
+                shared_secret.assign((char*)secret.data(), secret_len);
                 ok = true;
             }
         }

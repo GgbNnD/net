@@ -108,6 +108,8 @@ public:
      */
     void set_on_device_hello(DeviceHelloCallback callback);
 
+    void set_ecdh_public_key(const std::string& key) { m_ecdh_public_key = key; }
+
 private:
     uint16_t m_port;                    // 监听端口
     SOCKET_FD m_listen_socket;          // TCP监听Socket
@@ -121,6 +123,7 @@ private:
     FileRequestCallback m_file_request_cb;     // 文件请求回调
     ControlMsgCallback  m_control_msg_cb;      // 控制消息回调
     DeviceHelloCallback m_device_hello_cb;     // TCP握手回调
+    std::string m_ecdh_public_key;             // 本机 ECDH 公钥 (用于 HELLO_ACK)
 
     /**
      * @brief 接受连接线程主函数

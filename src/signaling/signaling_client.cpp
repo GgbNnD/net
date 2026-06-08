@@ -5,6 +5,7 @@
 #include "signaling/signaling_client.h"
 #include "common/protocol.h"
 #include "common/utils.h"
+#include "common/peer_key.h"
 #include <iostream>
 #include <cstring>
 
@@ -19,7 +20,7 @@ SignalingClient::~SignalingClient() {
 }
 
 /**
- * @brief TCP探活 + DEVICE_HELLO 握手 (双方互相发现)
+ * @brief TCP探活 + DEVICE_HELLO 握手 (双方互相发现 + ECDH 密钥交换)
  */
 bool SignalingClient::test_connect(const std::string& target_ip,
                                      uint16_t target_port,
@@ -28,7 +29,8 @@ bool SignalingClient::test_connect(const std::string& target_ip,
                                      const std::string& my_ip,
                                      uint16_t my_port,
                                      uint32_t timeout_ms,
-                                     const std::string& my_public_key) {
+                                     const std::string& my_public_key,
+                                     const std::string& my_private_key) {
     SOCKET_FD sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock == INVALID_SOCKET_FD) return false;
 
@@ -51,11 +53,21 @@ bool SignalingClient::test_connect(const std::string& target_ip,
             return false;
         }
     } else {
-        // 立即连接成功, 发送 DEVICE_HELLO
         NetworkUtils::set_blocking(sock);
         json hello = Protocol::build_device_hello(my_id, my_name, my_ip, my_port, my_public_key);
         Protocol::send_json_message(sock, hello);
-        // 优雅关闭确保数据被对方收到
+
+        json ack;
+        if (Protocol::recv_json_message(sock, ack) &&
+            ack.value("type", "") == MsgType::DEVICE_HELLO_ACK) {
+            std::string remote_pub = ack.value("public_key", "");
+            if (!remote_pub.empty() && !my_private_key.empty()) {
+                std::string shared;
+                if (Utils::compute_ecdh_shared(my_private_key, remote_pub, shared)) {
+                    PeerKey::store(target_ip, shared);
+                }
+            }
+        }
         shutdown(sock, SHUT_WR);
         char dummy[64];
         while (recv(sock, dummy, sizeof(dummy), 0) > 0) {}
@@ -83,11 +95,21 @@ bool SignalingClient::test_connect(const std::string& target_ip,
     bool ok = (getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&so_error, &so_len) == 0 && so_error == 0);
 
     if (ok) {
-        // 连接成功, 发送 DEVICE_HELLO 让对方发现本机
         NetworkUtils::set_blocking(sock);
         json hello = Protocol::build_device_hello(my_id, my_name, my_ip, my_port, my_public_key);
         Protocol::send_json_message(sock, hello);
-        // 优雅关闭确保数据被对方收到
+
+        json ack;
+        if (Protocol::recv_json_message(sock, ack) &&
+            ack.value("type", "") == MsgType::DEVICE_HELLO_ACK) {
+            std::string remote_pub = ack.value("public_key", "");
+            if (!remote_pub.empty() && !my_private_key.empty()) {
+                std::string shared;
+                if (Utils::compute_ecdh_shared(my_private_key, remote_pub, shared)) {
+                    PeerKey::store(target_ip, shared);
+                }
+            }
+        }
         shutdown(sock, SHUT_WR);
         char dummy[64];
         while (recv(sock, dummy, sizeof(dummy), 0) > 0) {}

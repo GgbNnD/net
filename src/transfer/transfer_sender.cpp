@@ -5,6 +5,7 @@
 #include "transfer/transfer_sender.h"
 #include "common/protocol.h"
 #include "common/utils.h"
+#include "common/peer_key.h"
 #include "signaling/signaling_client.h"
 #include <iostream>
 #include <fstream>
@@ -48,6 +49,7 @@ bool TransferSender::send_file(const std::string& target_ip,
     m_transferring = true;
     m_paused = false;
     m_cancelled = false;
+    m_target_ip = target_ip;
 
     // 1. 打开文件并获取元信息
     FileChunkIO io(file_path, Defaults::CHUNK_SIZE, true);
@@ -173,7 +175,11 @@ bool TransferSender::send_file_header(SOCKET_FD sock, const FileMeta& meta) {
     header["total_chunks"] = meta.total_chunks;
     header["compression"]  = "zlib";
 
-    // 发送类型标记 'J' (JSON消息)
+    std::string secret = PeerKey::get(m_target_ip);
+    if (!secret.empty()) {
+        return Protocol::encrypted_send_json(sock, header, m_target_ip);
+    }
+
     char type_marker = 'J';
     if (SOCK_SEND(sock, &type_marker, 1, 0) != 1) return false;
 
@@ -272,7 +278,13 @@ bool TransferSender::send_chunks(SOCKET_FD sock, FileChunkIO& io,
 bool TransferSender::send_chunk(SOCKET_FD sock, const Chunk& chunk) {
     std::vector<uint8_t> data = chunk.serialize();
 
-    // 发送类型标记 'C' (Chunk数据)
+    std::string secret = PeerKey::get(m_target_ip);
+    if (!secret.empty()) {
+        char type_marker = 'D';
+        if (SOCK_SEND(sock, &type_marker, 1, 0) != 1) return false;
+        return Protocol::encrypted_send_data(sock, data.data(), data.size(), m_target_ip);
+    }
+
     char type_marker = 'C';
     if (SOCK_SEND(sock, &type_marker, 1, 0) != 1) return false;
 
@@ -293,6 +305,18 @@ bool TransferSender::send_chunk(SOCKET_FD sock, const Chunk& chunk) {
 // 接收ACK (阻塞读取, 使用 SO_RCVTIMEO 超时)
 // ----------------------------------------------------------
 bool TransferSender::try_recv_ack(SOCKET_FD sock, nlohmann::json& ack) {
+    std::string secret = PeerKey::get(m_target_ip);
+    if (!secret.empty()) {
+        char marker;
+        int n = SOCK_RECV(sock, &marker, 1, 0);
+        if (n != 1) return false;
+        if (marker == 'E') {
+            return Protocol::encrypted_recv_json(sock, ack, m_target_ip);
+        }
+        if (marker != 'J') return false;
+        return Protocol::recv_json_message(sock, ack);
+    }
+
     char marker;
     int n = SOCK_RECV(sock, &marker, 1, 0);
     if (n != 1) return false;

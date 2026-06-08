@@ -98,26 +98,14 @@ private:
     std::atomic<bool> m_paused;         // 暂停标志
     std::atomic<bool> m_cancelled;      // 取消标志
     std::atomic<bool> m_transferring;   // 传输中标志
+    std::string m_target_ip;            // 目标IP (用于加密/解密)
 
-    /**
-     * @brief 发送文件头信息 (JSON格式)
-     */
     bool send_file_header(SOCKET_FD sock, const FileMeta& meta);
 
-    /**
-     * @brief 发送所有分片 (滑动窗口)
-     */
     bool send_chunks(SOCKET_FD sock, FileChunkIO& io, const FileMeta& meta,
                      uint32_t window_size, ProgressCallback callback);
 
-    /**
-     * @brief 发送单个分片
-     */
     bool send_chunk(SOCKET_FD sock, const Chunk& chunk);
 
-    /**
-     * @brief 接收ACK消息 (非阻塞)
-     * @return 收到ACK返回true, 无可用数据返回false
-     */
     bool try_recv_ack(SOCKET_FD sock, nlohmann::json& ack);
 };

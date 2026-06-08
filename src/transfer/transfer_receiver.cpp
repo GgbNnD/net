@@ -5,6 +5,7 @@
 #include "transfer/transfer_receiver.h"
 #include "common/protocol.h"
 #include "common/utils.h"
+#include "common/peer_key.h"
 #include <iostream>
 #include <fstream>
 #include <cstring>
@@ -172,7 +173,7 @@ void TransferReceiver::accept_loop() {
 void TransferReceiver::handle_receive(SOCKET_FD client_sock, const std::string& sender_ip) {
     // 1. 接收文件头
     FileMeta meta;
-    if (!recv_file_header(client_sock, meta)) {
+    if (!recv_file_header(client_sock, meta, sender_ip)) {
         std::cerr << "[接收] 接收文件头失败" << std::endl;
         CLOSE_SOCKET(client_sock);
         return;
@@ -224,7 +225,7 @@ void TransferReceiver::handle_receive(SOCKET_FD client_sock, const std::string& 
 
     while (chunk_count < meta.total_chunks) {
         Chunk chunk;
-        if (!recv_chunk(client_sock, chunk)) {
+        if (!recv_chunk(client_sock, chunk, sender_ip)) {
             std::cerr << "[接收] 接收分片失败, 已接收: " << chunk_count << std::endl;
             CLOSE_SOCKET(client_sock);
             return;
@@ -248,14 +249,14 @@ void TransferReceiver::handle_receive(SOCKET_FD client_sock, const std::string& 
         // 每收到1个分片就发送一次ACK (确保发送方尽快确认)
         if (chunk_count > last_ack_count) {
             uint32_t max_cont = io.get_max_contiguous_chunk();
-            send_ack(client_sock, meta.file_id, max_cont);
+            send_ack(client_sock, meta.file_id, max_cont, sender_ip);
             last_ack_count = chunk_count;
         }
     }
 
     // 4. 发送最终ACK
     uint32_t final_contiguous = io.get_max_contiguous_chunk();
-    send_ack(client_sock, meta.file_id, final_contiguous);
+    send_ack(client_sock, meta.file_id, final_contiguous, sender_ip);
 
     // 5. 完成传输, 验证文件
     if (final_contiguous == meta.total_chunks - 1) {
@@ -306,10 +307,28 @@ void TransferReceiver::handle_receive(SOCKET_FD client_sock, const std::string& 
 // ----------------------------------------------------------
 // 接收文件头 (JSON消息, 前有类型标记)
 // ----------------------------------------------------------
-bool TransferReceiver::recv_file_header(SOCKET_FD sock, FileMeta& meta) {
-    // 读取类型标记
+bool TransferReceiver::recv_file_header(SOCKET_FD sock, FileMeta& meta, const std::string& sender_ip) {
     char marker;
-    if (SOCK_RECV(sock, &marker, 1, 0) != 1 || marker != 'J') {
+    if (SOCK_RECV(sock, &marker, 1, 0) != 1) {
+        std::cerr << "[接收] 文件头类型标记读取失败" << std::endl;
+        return false;
+    }
+
+    if (marker == 'E') {
+        json header;
+        if (!Protocol::encrypted_recv_json(sock, header, sender_ip))
+            return false;
+        meta.file_id      = header.value("file_id", "");
+        meta.filename     = header.value("filename", "");
+        meta.file_size    = header.value("file_size", uint64_t(0));
+        meta.checksum     = header.value("checksum", "");
+        meta.chunk_size   = header.value("chunk_size", uint32_t(0));
+        meta.total_chunks = header.value("total_chunks", uint32_t(0));
+        meta.compression  = header.value("compression", "");
+        return true;
+    }
+
+    if (marker != 'J') {
         std::cerr << "[接收] 文件头类型标记错误: " << (int)marker << std::endl;
         return false;
     }
@@ -343,19 +362,34 @@ bool TransferReceiver::recv_file_header(SOCKET_FD sock, FileMeta& meta) {
 // ----------------------------------------------------------
 // 接收单个分片 (从二进制流中解析, 前有类型标记)
 // ----------------------------------------------------------
-bool TransferReceiver::recv_chunk(SOCKET_FD sock, Chunk& chunk) {
-    // 读取类型标记
+bool TransferReceiver::recv_chunk(SOCKET_FD sock, Chunk& chunk, const std::string& sender_ip) {
     char marker;
     if (SOCK_RECV(sock, &marker, 1, 0) != 1) {
         return false;
     }
+
+    if (marker == 'D') {
+        chunk.chunk_index = 0;
+        std::vector<uint8_t> data;
+        if (!Protocol::encrypted_recv_data(sock, data, 0, sender_ip))
+            return false;
+        if (!chunk.deserialize(data.data(), data.size()))
+            return false;
+        return true;
+    }
+
     if (marker == 'J') {
-        // JSON消息 (TRANSFER_DONE/ERROR等), 跳过, 让外层处理
-        // 设置特殊标记表示这是JSON消息, 非normal chunk
         chunk.chunk_index = 0xFFFFFFFF;
         chunk.total_chunks = 0xFFFFFFFF;
         return true;
     }
+
+    if (marker == 'E') {
+        chunk.chunk_index = 0xFFFFFFFF;
+        chunk.total_chunks = 0xFFFFFFFF;
+        return true;
+    }
+
     if (marker != 'C') {
         std::cerr << "[接收] 分片类型标记错误: " << (int)marker << std::endl;
         return false;
@@ -412,7 +446,15 @@ bool TransferReceiver::recv_chunk(SOCKET_FD sock, Chunk& chunk) {
 // 发送ACK (JSON消息, 前加类型标记)
 // ----------------------------------------------------------
 bool TransferReceiver::send_ack(SOCKET_FD sock, const std::string& file_id,
-                                 uint32_t max_contiguous_chunk) {
+                                 uint32_t max_contiguous_chunk, const std::string& sender_ip) {
+    std::string secret = PeerKey::get(sender_ip);
+    if (!secret.empty()) {
+        char marker = 'E';
+        if (SOCK_SEND(sock, &marker, 1, 0) != 1) return false;
+        json ack = Protocol::build_chunk_ack(file_id, max_contiguous_chunk);
+        return Protocol::encrypted_send_json(sock, ack, sender_ip);
+    }
+
     char marker = 'J';
     if (SOCK_SEND(sock, &marker, 1, 0) != 1) return false;
 

@@ -12,14 +12,6 @@
 
 namespace Protocol {
 
-constexpr const char* MAC_SECRET = "p2p-transfer-secret-2024";
-
-static std::string mac_secret_for(const std::string& peer_ip) {
-    std::string peer = PeerKey::get(peer_ip);
-    if (peer.empty()) return MAC_SECRET;
-    return std::string(MAC_SECRET) + peer;
-}
-
 // ============================================================
 // 协议消息构建函数
 // ============================================================
@@ -57,6 +49,15 @@ json build_device_hello(const std::string& device_id,
     msg["device_name"] = device_name;
     msg["ip"]          = ip;
     msg["port"]        = port;
+    if (!public_key.empty()) {
+        msg["public_key"] = public_key;
+    }
+    return msg;
+}
+
+json build_device_hello_ack(const std::string& public_key) {
+    json msg;
+    msg["type"] = MsgType::DEVICE_HELLO_ACK;
     if (!public_key.empty()) {
         msg["public_key"] = public_key;
     }
@@ -120,41 +121,6 @@ json build_control_message(const std::string& type,
         msg["message"] = extra;
     }
     return msg;
-}
-
-// ============================================================
-// MAC 报文鉴别码 (MD5 + 共享密钥 + 对端 ECDH 子密钥)
-// ============================================================
-
-void sign_message(json& msg, const std::string& peer_ip) {
-    json canonical = msg;
-    canonical.erase("mac");
-
-    std::string secret = mac_secret_for(peer_ip);
-    std::string payload = canonical.dump();
-    std::string mac = Utils::md5_data(
-        reinterpret_cast<const uint8_t*>((payload + secret).data()),
-        payload.size() + secret.size());
-
-    msg["mac"] = mac;
-}
-
-bool verify_message(const json& msg, const std::string& peer_ip) {
-    if (!msg.contains("mac")) {
-        return true;
-    }
-
-    json canonical = msg;
-    std::string received_mac = canonical["mac"];
-    canonical.erase("mac");
-
-    std::string payload = canonical.dump();
-    std::string secret = mac_secret_for(peer_ip);
-    std::string expected_mac = Utils::md5_data(
-        reinterpret_cast<const uint8_t*>((payload + secret).data()),
-        payload.size() + secret.size());
-
-    return received_mac == expected_mac;
 }
 
 // ============================================================
@@ -224,30 +190,176 @@ static bool recv_json_message_raw(SOCKET_FD sock, json& msg) {
 }
 
 // ============================================================
-// 公开接口
+// 公开接口 (带加密支持)
 // ============================================================
 
-bool send_json_message(SOCKET_FD sock, const json& msg) {
-    json signed_msg = msg;
-    sign_message(signed_msg, "");
-    return send_json_message_raw(sock, signed_msg);
-}
+static bool send_encrypted_raw(SOCKET_FD sock, const std::string& plaintext, const std::string& secret) {
+    std::string cipher;
+    if (!Utils::aes_gcm_encrypt(plaintext, secret, cipher)) return false;
 
-bool send_json_message(SOCKET_FD sock, const json& msg, const std::string& peer_ip) {
-    json signed_msg = msg;
-    sign_message(signed_msg, peer_ip);
-    return send_json_message_raw(sock, signed_msg);
-}
+    uint32_t total_len = static_cast<uint32_t>(cipher.size());
+    uint32_t net_len = htonl(total_len);
 
-bool recv_json_message(SOCKET_FD sock, json& msg) {
-    if (!recv_json_message_raw(sock, msg)) return false;
-    if (!verify_message(msg, "")) return false;
+    if (SOCK_SEND(sock, reinterpret_cast<const char*>(&net_len), 4, 0) != 4) return false;
+
+    size_t total_sent = 0;
+    while (total_sent < cipher.size()) {
+        auto sent = SOCK_SEND(sock, cipher.data() + total_sent,
+                              static_cast<int>(cipher.size() - total_sent), 0);
+        if (sent <= 0) return false;
+        total_sent += sent;
+    }
     return true;
 }
 
+static bool recv_encrypted_raw(SOCKET_FD sock, std::string& raw, std::string& plaintext, const std::string& secret) {
+    uint32_t net_len;
+    size_t total_read = 0;
+    while (total_read < 4) {
+        auto n = SOCK_RECV(sock, reinterpret_cast<char*>(&net_len) + total_read,
+                           static_cast<int>(4 - total_read), 0);
+        if (n <= 0) return false;
+        total_read += n;
+    }
+    uint32_t data_len = ntohl(net_len);
+
+    constexpr uint32_t MAX_MSG_SIZE = 10 * 1024 * 1024;
+    if (data_len > MAX_MSG_SIZE) return false;
+
+    std::vector<char> buffer(data_len);
+    total_read = 0;
+    while (total_read < data_len) {
+        auto n = SOCK_RECV(sock, buffer.data() + total_read,
+                           static_cast<int>(data_len - total_read), 0);
+        if (n <= 0) return false;
+        total_read += n;
+    }
+
+    raw.assign(buffer.data(), data_len);
+    return Utils::aes_gcm_decrypt(raw, secret, plaintext);
+}
+
+bool send_json_message(SOCKET_FD sock, const json& msg) {
+    return send_json_message_raw(sock, msg);
+}
+
+bool send_json_message(SOCKET_FD sock, const json& msg, const std::string& peer_ip) {
+    std::string secret = PeerKey::get(peer_ip);
+    if (!secret.empty()) {
+        return send_encrypted_raw(sock, msg.dump(), secret);
+    }
+    return send_json_message_raw(sock, msg);
+}
+
+bool recv_json_message(SOCKET_FD sock, json& msg) {
+    return recv_json_message_raw(sock, msg);
+}
+
 bool recv_json_message(SOCKET_FD sock, json& msg, const std::string& peer_ip) {
-    if (!recv_json_message_raw(sock, msg)) return false;
-    if (!verify_message(msg, peer_ip)) return false;
+    std::string secret = PeerKey::get(peer_ip);
+    std::string raw;
+
+    if (!secret.empty()) {
+        std::string decrypted;
+        if (recv_encrypted_raw(sock, raw, decrypted, secret)) {
+            try { msg = json::parse(decrypted); return true; }
+            catch (const json::exception&) {}
+        }
+        if (!raw.empty()) {
+            try { msg = json::parse(raw); return true; }
+            catch (const json::exception&) {}
+        }
+        return false;
+    }
+
+    return recv_json_message_raw(sock, msg);
+}
+
+bool encrypted_send_json(SOCKET_FD sock, const json& msg, const std::string& peer_ip) {
+    std::string secret = PeerKey::get(peer_ip);
+    if (secret.empty()) {
+        return send_json_message_raw(sock, msg);
+    }
+    return send_encrypted_raw(sock, msg.dump(), secret);
+}
+
+bool encrypted_recv_json(SOCKET_FD sock, json& msg, const std::string& peer_ip) {
+    std::string secret = PeerKey::get(peer_ip);
+    if (secret.empty()) {
+        return recv_json_message_raw(sock, msg);
+    }
+    std::string raw, decrypted;
+    if (!recv_encrypted_raw(sock, raw, decrypted, secret)) return false;
+    try { msg = json::parse(decrypted); }
+    catch (const json::exception&) { return false; }
+    return true;
+}
+
+bool encrypted_send_data(SOCKET_FD sock, const void* data, size_t len, const std::string& peer_ip) {
+    std::string secret = PeerKey::get(peer_ip);
+    if (secret.empty()) {
+        SOCK_SEND(sock, static_cast<const char*>(data), static_cast<int>(len), 0);
+        return true;
+    }
+
+    std::string cipher;
+    if (!Utils::aes_gcm_encrypt(std::string(static_cast<const char*>(data), len), secret, cipher))
+        return false;
+
+    uint32_t total_len = static_cast<uint32_t>(cipher.size());
+    uint32_t net_len = htonl(total_len);
+    if (SOCK_SEND(sock, reinterpret_cast<const char*>(&net_len), 4, 0) != 4) return false;
+
+    size_t total_sent = 0;
+    while (total_sent < cipher.size()) {
+        auto sent = SOCK_SEND(sock, cipher.data() + total_sent,
+                              static_cast<int>(cipher.size() - total_sent), 0);
+        if (sent <= 0) return false;
+        total_sent += sent;
+    }
+    return true;
+}
+
+bool encrypted_recv_data(SOCKET_FD sock, std::vector<uint8_t>& out, size_t expected_len, const std::string& peer_ip) {
+    std::string secret = PeerKey::get(peer_ip);
+    if (secret.empty()) {
+        out.resize(expected_len);
+        size_t total_read = 0;
+        while (total_read < expected_len) {
+            auto n = SOCK_RECV(sock, reinterpret_cast<char*>(out.data()) + total_read,
+                               static_cast<int>(expected_len - total_read), 0);
+            if (n <= 0) return false;
+            total_read += n;
+        }
+        return true;
+    }
+
+    uint32_t net_len;
+    size_t total_read = 0;
+    while (total_read < 4) {
+        auto n = SOCK_RECV(sock, reinterpret_cast<char*>(&net_len) + total_read,
+                           static_cast<int>(4 - total_read), 0);
+        if (n <= 0) return false;
+        total_read += n;
+    }
+    uint32_t data_len = ntohl(net_len);
+
+    if (data_len > 100 * 1024 * 1024) return false;
+
+    std::vector<char> buffer(data_len);
+    total_read = 0;
+    while (total_read < data_len) {
+        auto n = SOCK_RECV(sock, buffer.data() + total_read,
+                           static_cast<int>(data_len - total_read), 0);
+        if (n <= 0) return false;
+        total_read += n;
+    }
+
+    std::string plain;
+    if (!Utils::aes_gcm_decrypt(std::string(buffer.data(), data_len), secret, plain))
+        return false;
+
+    out.assign(plain.begin(), plain.end());
     return true;
 }
 

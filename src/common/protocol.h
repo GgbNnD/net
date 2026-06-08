@@ -22,6 +22,7 @@ namespace MsgType {
     constexpr const char* DEVICE_BROADCAST = "DEVICE_BROADCAST";  // 设备上线广播
     constexpr const char* DEVICE_OFFLINE   = "DEVICE_OFFLINE";    // 设备离线通知
     constexpr const char* DEVICE_HELLO     = "DEVICE_HELLO";      // TCP探活握手 (互相发现)
+    constexpr const char* DEVICE_HELLO_ACK = "DEVICE_HELLO_ACK";  // DEVICE_HELLO 应答 (携带 ECDH 公钥)
     constexpr const char* TEXT_MESSAGE     = "TEXT_MESSAGE";      // 聊天文本消息
 
     // === 信令协商阶段 ===
@@ -92,6 +93,8 @@ json build_device_hello(const std::string& device_id,
                          const std::string& ip,
                          uint16_t port,
                          const std::string& public_key = "");
+
+json build_device_hello_ack(const std::string& public_key = "");
 
 /**
  * @brief 构建文本聊天消息
@@ -182,7 +185,6 @@ json build_control_message(const std::string& type,
  * @return 是否发送成功
  *
  * 协议格式: [4字节消息长度(网络字节序)] + [JSON字符串]
- * 这样接收方可以先读4字节获取长度, 再精确读取对应长度的数据
  * 发送前自动调用 sign_message() 附加 MAC 校验码
  */
 bool send_json_message(SOCKET_FD sock, const json& msg);
@@ -200,17 +202,33 @@ bool recv_json_message(SOCKET_FD sock, json& msg);
 bool recv_json_message(SOCKET_FD sock, json& msg, const std::string& peer_ip);
 
 /**
- * @brief 计算消息的 MAC (报文鉴别码)
- * MD5(消息JSON串 + 共享密钥 + 对端子密钥), 防止伪造
- * @param peer_ip 对端IP, 用于查找 ECDH 协商的子密钥
+ * @brief 加密发送JSON消息 (AES-128-GCM, 基于 ECDH 共享密钥)
+ *
+ * 加密格式: [4字节BE总长度][12字节IV][密文][16字节GCM Tag]
+ * 总长度 = 12 + 明文长度 + 16
+ * 自动签名 + 加密
  */
-void sign_message(json& msg, const std::string& peer_ip = "");
+bool encrypted_send_json(SOCKET_FD sock, const json& msg, const std::string& peer_ip);
 
 /**
- * @brief 验证消息的 MAC
- * @param peer_ip 发送方IP, 用于查找协商密钥
- * @return true=通过, false=伪造或被篡改
+ * @brief 加密接收JSON消息 (AES-128-GCM 解密)
+ * @return 解密 + MAC验证都通过返回 true
  */
-bool verify_message(const json& msg, const std::string& peer_ip = "");
+bool encrypted_recv_json(SOCKET_FD sock, json& msg, const std::string& peer_ip);
+
+/**
+ * @brief 加密发送原始数据块 (用于传输 chunk 数据)
+ *
+ * 加密格式: [12字节IV][密文][16字节GCM Tag]
+ * 接收方先读 4 字节长度得出总大小, 再调用 encrypted_recv_data
+ */
+bool encrypted_send_data(SOCKET_FD sock, const void* data, size_t len, const std::string& peer_ip);
+
+/**
+ * @brief 加密接收原始数据块
+ * @param out          输出解密后的数据
+ * @param expected_len 期望的明文长度
+ */
+bool encrypted_recv_data(SOCKET_FD sock, std::vector<uint8_t>& out, size_t expected_len, const std::string& peer_ip);
 
 } // namespace Protocol

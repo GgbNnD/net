@@ -520,6 +520,7 @@ bool init_discovery_service() {
 
 bool init_signaling_service() {
     g_signaling_server = std::make_unique<SignalingServer>(Defaults::SIGNALING_PORT);
+    g_signaling_server->set_ecdh_public_key(g_ecdh_public_key);
 
     // 设置文件请求回调: 自动接受所有传输请求
     g_signaling_server->set_on_file_request([](const json& request,
@@ -1165,7 +1166,7 @@ int main() {
                     g_device_id, g_device_name,
                     g_discovery ? g_discovery->get_local_ip() : "127.0.0.1",
                     Defaults::SIGNALING_PORT, 1000,
-                    g_ecdh_public_key);
+                    g_ecdh_public_key, g_ecdh_private_key);
                 if (alive) {
                     now_online.insert(d.id);
                     DeviceInfo updated = d;

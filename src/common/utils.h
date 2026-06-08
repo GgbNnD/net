@@ -108,6 +108,13 @@ std::string base64_decode(const std::string& input);
 std::string url_decode(const std::string& input);
 
 // ----------------------------------------------------------
+// AES-256-GCM 加密/解密 (基于 ECDH 共享密钥)
+// ----------------------------------------------------------
+
+bool aes_gcm_encrypt(const std::string& plaintext, const std::string& key, std::string& out);
+bool aes_gcm_decrypt(const std::string& ciphertext_with_iv_tag, const std::string& key, std::string& out);
+
+// ----------------------------------------------------------
 // ECDH 密钥交换 (基于 OpenSSL secp256r1)
 // ----------------------------------------------------------
 
@@ -120,15 +127,15 @@ std::string url_decode(const std::string& input);
 bool generate_ecdh_keypair(std::string& public_key_b64, std::string& private_key_b64);
 
 /**
- * @brief 计算 ECDH 共享密钥
+ * @brief 计算 ECDH 共享密钥 (secp256r1, 32 字节原始值)
  * @param local_private_b64  本机私钥 (Base64)
  * @param remote_public_b64  远程公钥 (Base64)
- * @param shared_secret_hex  输出: 16 进制共享密钥 (32 字节 = 64 字符)
+ * @param shared_secret      输出: 32 字节原始共享密钥
  * @return 是否成功
  */
 bool compute_ecdh_shared(const std::string& local_private_b64,
                          const std::string& remote_public_b64,
-                         std::string& shared_secret_hex);
+                         std::string& shared_secret);
 
 // ----------------------------------------------------------
 // zlib 压缩/解压缩

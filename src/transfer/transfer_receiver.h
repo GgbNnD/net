@@ -126,16 +126,10 @@ private:
     /**
      * @brief 接收文件头信息
      */
-    bool recv_file_header(SOCKET_FD sock, FileMeta& meta);
+    bool recv_file_header(SOCKET_FD sock, FileMeta& meta, const std::string& sender_ip);
 
-    /**
-     * @brief 接收单个分片
-     */
-    bool recv_chunk(SOCKET_FD sock, Chunk& chunk);
+    bool recv_chunk(SOCKET_FD sock, Chunk& chunk, const std::string& sender_ip);
 
-    /**
-     * @brief 发送ACK
-     */
     bool send_ack(SOCKET_FD sock, const std::string& file_id,
-                  uint32_t max_contiguous_chunk);
+                  uint32_t max_contiguous_chunk, const std::string& sender_ip);
 };

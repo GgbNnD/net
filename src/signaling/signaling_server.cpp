@@ -261,6 +261,10 @@ void SignalingServer::handle_client(SOCKET_FD client_sock, const std::string& cl
         if (m_device_hello_cb) {
             m_device_hello_cb(msg, client_ip);
         }
+        if (!m_ecdh_public_key.empty()) {
+            json ack = Protocol::build_device_hello_ack(m_ecdh_public_key);
+            Protocol::send_json_message(client_sock, ack);
+        }
     } else if (type == MsgType::TEXT_MESSAGE) {
         if (m_control_msg_cb) {
             m_control_msg_cb(msg, client_ip);
