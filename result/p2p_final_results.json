@@ -1,0 +1,203 @@
+{
+  "rtt_avg_ms": 186.8,
+  "transfers": [
+    {
+      "file_mb": 10,
+      "threads": 1,
+      "wall_sec": 2.48,
+      "ok": true,
+      "throughput_mbps": 45.0,
+      "file_size": 10485760,
+      "total_time_us": 1862627,
+      "threads_detail": {
+        "0": {
+          "conn_us": 175016,
+          "first_byte_us": 175804,
+          "total_us": 1862309,
+          "bytes": 10485760,
+          "start_chunk": 0,
+          "end_chunk": 160
+        }
+      },
+      "remote_ok": true
+    },
+    {
+      "file_mb": 10,
+      "threads": 4,
+      "wall_sec": 2.21,
+      "ok": true,
+      "throughput_mbps": 52.7,
+      "file_size": 10485760,
+      "total_time_us": 1591009,
+      "threads_detail": {
+        "0": {
+          "conn_us": 170816,
+          "first_byte_us": 171180,
+          "total_us": 1590850,
+          "bytes": 2621440,
+          "start_chunk": 0,
+          "end_chunk": 40
+        },
+        "1": {
+          "conn_us": 170774,
+          "first_byte_us": 171212,
+          "total_us": 1584443,
+          "bytes": 2621440,
+          "start_chunk": 40,
+          "end_chunk": 80
+        },
+        "2": {
+          "conn_us": 170749,
+          "first_byte_us": 171169,
+          "total_us": 1425758,
+          "bytes": 2621440,
+          "start_chunk": 80,
+          "end_chunk": 120
+        },
+        "3": {
+          "conn_us": 170772,
+          "first_byte_us": 171277,
+          "total_us": 1488943,
+          "bytes": 2621440,
+          "start_chunk": 120,
+          "end_chunk": 160
+        }
+      },
+      "remote_ok": true
+    },
+    {
+      "file_mb": 100,
+      "threads": 1,
+      "wall_sec": 17.56,
+      "ok": true,
+      "throughput_mbps": 72.3,
+      "file_size": 104857600,
+      "total_time_us": 11601803,
+      "threads_detail": {
+        "0": {
+          "conn_us": 61363,
+          "first_byte_us": 61561,
+          "total_us": 11601609,
+          "bytes": 104857600,
+          "start_chunk": 0,
+          "end_chunk": 1600
+        }
+      },
+      "remote_ok": true
+    },
+    {
+      "file_mb": 100,
+      "threads": 4,
+      "wall_sec": 18.94,
+      "ok": true,
+      "throughput_mbps": 65.9,
+      "file_size": 104857600,
+      "total_time_us": 12737094,
+      "threads_detail": {
+        "0": {
+          "conn_us": 213832,
+          "first_byte_us": 214247,
+          "total_us": 11316404,
+          "bytes": 26214400,
+          "start_chunk": 0,
+          "end_chunk": 400
+        },
+        "1": {
+          "conn_us": 213805,
+          "first_byte_us": 214237,
+          "total_us": 12473864,
+          "bytes": 26214400,
+          "start_chunk": 400,
+          "end_chunk": 800
+        },
+        "2": {
+          "conn_us": 213798,
+          "first_byte_us": 214193,
+          "total_us": 12736882,
+          "bytes": 26214400,
+          "start_chunk": 800,
+          "end_chunk": 1200
+        },
+        "3": {
+          "conn_us": 213786,
+          "first_byte_us": 214188,
+          "total_us": 10711784,
+          "bytes": 26214400,
+          "start_chunk": 1200,
+          "end_chunk": 1600
+        }
+      },
+      "remote_ok": true
+    },
+    {
+      "file_mb": 500,
+      "threads": 1,
+      "wall_sec": 93.47,
+      "ok": true,
+      "throughput_mbps": 67.4,
+      "file_size": 524288000,
+      "total_time_us": 62188115,
+      "threads_detail": {
+        "0": {
+          "conn_us": 87546,
+          "first_byte_us": 87912,
+          "total_us": 62187958,
+          "bytes": 524288000,
+          "start_chunk": 0,
+          "end_chunk": 8000
+        }
+      },
+      "remote_ok": true
+    },
+    {
+      "file_mb": 500,
+      "threads": 4,
+      "wall_sec": 98.03,
+      "ok": true,
+      "throughput_mbps": 63.0,
+      "file_size": 524288000,
+      "total_time_us": 66595159,
+      "threads_detail": {
+        "0": {
+          "conn_us": 120976,
+          "first_byte_us": 121582,
+          "total_us": 66594985,
+          "bytes": 131072000,
+          "start_chunk": 0,
+          "end_chunk": 2000
+        },
+        "1": {
+          "conn_us": 121037,
+          "first_byte_us": 121633,
+          "total_us": 61706572,
+          "bytes": 131072000,
+          "start_chunk": 2000,
+          "end_chunk": 4000
+        },
+        "2": {
+          "conn_us": 120952,
+          "first_byte_us": 121728,
+          "total_us": 55497398,
+          "bytes": 131072000,
+          "start_chunk": 4000,
+          "end_chunk": 6000
+        },
+        "3": {
+          "conn_us": 120884,
+          "first_byte_us": 121631,
+          "total_us": 63329767,
+          "bytes": 131072000,
+          "start_chunk": 6000,
+          "end_chunk": 8000
+        }
+      },
+      "remote_ok": true
+    }
+  ],
+  "signaling": {
+    "msg_rtt_avg_ms": 446.6,
+    "msg_rtt_min_ms": 186.3,
+    "msg_rtt_max_ms": 1033.3,
+    "reverse_rtt_ms": 1048.7
+  }
+}

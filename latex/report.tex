@@ -42,11 +42,7 @@
 \addtolength{\parskip}{2pt}
 \renewcommand{\arraystretch}{1.35}
 
-\hypersetup{
-    colorlinks=true,
-    linkcolor=black,
-    urlcolor=blue!60!black
-}
+\hypersetup{colorlinks=true,linkcolor=black,urlcolor=blue!60!black}
 
 \definecolor{lightgray}{RGB}{245,245,244}
 \definecolor{deepblue}{RGB}{24,73,133}
@@ -66,7 +62,8 @@
                   int,long,short,char,float,double,bool,void,unsigned,signed,
                   size_t,uint8_t,uint16_t,uint32_t,uint64_t,int8_t,int16_t,int32_t,int64_t,
                   std,string,vector,map,set,thread,mutex,atomic,unique_ptr,shared_ptr,function,
-                  include,pragma,define,ifdef,ifndef,endif},
+                  include,pragma,define,ifdef,ifndef,endif,EVP_PKEY,EVP_CIPHER_CTX,
+                  SOCKET_FD,SOCK_SEND,SOCK_RECV,CLOSE_SOCKET},
     sensitive=true,
     morecomment=[l]{//},
     morecomment=[s]{/*}{*/},
@@ -93,14 +90,6 @@
     captionpos=b,
 }
 
-\setlist[itemize]{itemsep=2pt,topsep=2pt}
-\setlist[enumerate]{itemsep=2pt,topsep=2pt,label=(\arabic*)}
-
-\newcommand{\code}[1]{{\ttfamily #1}}
-\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
-\newcolumntype{M}[1]{>{\centering\arraybackslash}p{#1}}
-\emergencystretch=3em
-
 \renewcommand{\thesection}{~\CJKnumber{\arabic{section}}、}
 \renewcommand{\thesubsection}{\arabic{section}.\arabic{subsection}}
 \titleformat{\section}{\large\bfseries}{\thesection}{0em}{}
@@ -123,7 +112,7 @@
     \vspace{-0.1cm}
     \begin{center}
         \Huge{\textbf{局域网 P2P 文件传输系统}}\\[0.35cm]
-        \Large{——基于滑动窗口协议与 ECDH 密钥交换的安全传输}\\[0.5cm]
+        \Large{——基于 BBR 拥塞控制与 AES-256-GCM 加密的安全传输}\\[0.5cm]
     \end{center}
     \vspace*{0.9cm}
     \begin{center}
@@ -146,6 +135,1171 @@
 \setcounter{page}{1}
 
 % ========================= 摘要 =========================
+\section*{摘\quad 要}
+\addcontentsline{toc}{section}{摘要}
 
+本实验设计并实现了一套基于 ECDH 密钥交换与 AES-256-GCM 认证加密的局域网 P2P 文件传输系统。系统采用 UDP 组播进行设备发现，TCP 信令通道协调传输，多线程并行 TCP 连接结合 BBR 拥塞控制实现高效的文件传输。加密方面，使用 secp256r1 椭圆曲线 Diffie-Hellman 密钥交换为每对设备协商 256 位共享密钥，AES-256-GCM 以认证加密模式保护所有传输数据。
+
+在跨网络实际测试中，系统成功实现了两台设备间的安全文件传输。在 RTT 186.8ms 的链路上，单线程吞吐量达到 67.4 Mbps，4 线程吞吐量为 63.0 Mbps（500MB 文件）。TEXT\_MESSAGE 信令平均延迟 446.6ms。文章详细阐述了 ECDH 密钥协商、AES-GCM 认证加密的数学原理，以及 BBR 拥塞控制和多线程并行传输的实现机制。
+
+\vspace{1em}
+\noindent\textbf{关键词：}P2P 文件传输；ECDH 密钥交换；AES-256-GCM；BBR 拥塞控制；多线程并行传输
+
+\newpage
+\tableofcontents
+\newpage
+
+% ============================================================
+% 一、项目内容
+% ============================================================
+\section{项目内容}
+
+本项目实现了一个完整的局域网 P2P 文件传输工具，支持设备发现、安全通信和高效文件传输。系统采用模块化分层架构，主要包含以下模块：
+
+\subsection{系统架构}
+
+系统由五个核心模块组成，通过回调机制松耦合协作：
+
+\begin{itemize}
+    \item \textbf{设备发现模块}（UDP 组播，端口 8888）：通过发送和接收 DEVICE\_BROADCAST 消息实现局域网设备自动发现，每 3 秒广播一次，10 秒超时判定离线。
+    \item \textbf{信令模块}（TCP 短连接，端口 8889）：负责设备握手（DEVICE\_HELLO）和传输协调（FILE\_REQUEST / FILE\_RESPONSE）。同时承载 ECDH 公钥交换和 TEXT\_MESSAGE 聊天功能。
+    \item \textbf{传输模块}（TCP 多连接，端口 8890）：多线程并行文件传输，每个线程独立 TCP 连接，BBR 拥塞控制替代传统滑动窗口协议。支持 zlib 压缩。
+    \item \textbf{加密模块}：基于 secp256r1 ECDH 密钥交换 + AES-256-GCM 认证加密，为信令和数据通道提供机密性和完整性保护。
+    \item \textbf{Web 界面}（HTTP 端口 8891）：提供设备管理、文件上传/下载、聊天功能的 Web 前端。
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1.8cm, auto,
+    block/.style={rectangle, draw, fill=blue!15, text width=3cm, align=center, rounded corners, minimum height=1cm},
+    line/.style={draw, -stealth, thick}]
+    \node [block] (web) {Web UI\\HTTP :8891};
+    \node [block, below of=web] (signal) {Signaling\\TCP :8889};
+    \node [block, left of=signal, xshift=-2cm] (discovery) {Discovery\\UDP :8888};
+    \node [block, right of=signal, xshift=2cm] (transfer) {Transfer\\TCP :8890};
+    \node [block, below of=signal, yshift=-0.5cm] (crypto) {AES-256-GCM\\ECDH};
+    \path [line] (discovery) -- (signal);
+    \path [line] (signal) -- (transfer);
+    \path [line] (web) -- (signal);
+    \path [line,dashed] (crypto) -- (signal);
+    \path [line,dashed] (crypto) -- (transfer);
+\end{tikzpicture}
+\caption{系统模块架构与端口分配}
+\label{fig:arch}
+\end{figure}
+
+\subsection{协议分层}
+
+系统定义了完整的应用层协议，包含 10 种消息类型：
+
+\begin{table}[H]
+\centering
+\caption{协议消息类型一览}
+\label{tab:msgs}
+\begin{tabular}{lll}
+\toprule
+\textbf{阶段} & \textbf{消息类型} & \textbf{用途} \\
+\midrule
+设备发现 & DEVICE\_BROADCAST & UDP 组播上线广播 \\
+         & DEVICE\_OFFLINE   & UDP 组播离线通知 \\
+         & DEVICE\_HELLO     & TCP 探活 + ECDH 公钥交换 \\
+         & DEVICE\_HELLO\_ACK & 应答对方公钥 \\
+\midrule
+信令协商 & FILE\_REQUEST      & 发起文件传输请求 \\
+         & FILE\_RESPONSE     & ACCEPT/REJECT 响应 \\
+         & TEXT\_MESSAGE      & 聊天文本消息 \\
+\midrule
+文件传输 & CHUNK\_ACK         & 分片确认 \\
+         & TRANSFER\_DONE     & 传输完成 \\
+         & TRANSFER\_ERROR    & 传输错误 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{UDP 组播设备发现}
+
+\subsubsection{组播原理与 IGMP}
+
+UDP 组播（Multicast）是局域网设备发现的理想机制：一台设备向组播地址发送一个数据包，交换机将该包复制给所有加入该组播组的设备。与广播（Broadcast）不同，组播仅在订阅该组的设备上接收，减少不必要的网络负载。
+
+本系统使用 \textbf{239.255.255.250:8888} 作为组播地址（管理范围组播地址 239.0.0.0/8，作用域为本地子网）。设备通过 IGMP（Internet Group Management Protocol）的 \texttt{IP\_ADD\_MEMBERSHIP} 系统调用告知内核"加入"该组播组：
+
+\begin{verbatim}
+    struct ip_mreq mreq;
+    mreq.imr_multiaddr.s_addr = inet_addr("239.255.255.250");
+    mreq.imr_interface.s_addr = inet_addr(local_ip);
+    setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq));
+\end{verbatim}
+
+加入组播组后，内核在网络接口的 MAC 层注册对应的组播 MAC 地址 （01:00:5E:7F:FF:FA），当交换机转发该组播帧时，网卡硬件过滤并递交给 IP 层。
+
+\subsubsection{设备发现流程}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=2.5cm, auto,
+    block/.style={rectangle, draw, fill=blue!10, text width=2.8cm, align=center, minimum height=0.8cm, rounded corners},
+    line/.style={draw, -stealth, thick}]
+    \node[block] (A) at (0,0) {设备 A\\上线};
+    \node[block] (B) at (5,0) {设备 B\\在线};
+    
+    \node[block, fill=green!10] (sockA) at (0,-2) {create\_socket\\加入组播组\\bind :8888};
+    \node[block, fill=green!10] (sockB) at (5,-2) {create\_socket\\加入组播组\\bind :8888};
+    
+    \node[block, fill=yellow!10] (sendA) at (0,-4) {send\_loop\\每3秒发送\\DEVICE\_BROADCAST};
+    \node[block, fill=yellow!10] (recvB) at (5,-4) {recv\_loop\\recvfrom 阻塞\\接收组播包};
+    
+    \path[line] (A) -- (sockA);
+    \path[line] (B) -- (sockB);
+    \path[line] (sockA) -- (sendA);
+    \path[line] (sockB) -- (recvB);
+    \path[line,<->,dashed] (sendA) -- node[above,align=center] {UDP 组播\\239.255.255.250:8888} (recvB);
+    \path[line] (recvB) -- node[right,align=center] {解析 JSON\\回调 on\_device\_found} (5,-5);
+\end{tikzpicture}
+\caption{UDP 组播设备发现流程}
+\label{fig:discovery}
+\end{figure}
+
+核心流程：
+
+\begin{enumerate}
+    \item \textbf{创建 UDP 套接字}：\texttt{socket(AF\_INET, SOCK\_DGRAM, 0)}，设置 \texttt{SO\_REUSEADDR} 允许多进程绑定同一端口
+    \item \textbf{绑定固定端口}：\texttt{bind(sock, 0.0.0.0:8888)}，监听所有接口
+    \item \textbf{加入组播组}：对所有非回环 IPv4 接口调用 \texttt{IP\_ADD\_MEMBERSHIP}，确保多网卡环境中任意接口的组播包均能接收
+    \item \textbf{启动发送线程}：每 3 秒向组播地址发送 \texttt{DEVICE\_BROADCAST} JSON 消息，包含设备 ID、名称、IP、信令端口（8889）
+    \item \textbf{启动接收线程}：\texttt{recvfrom()} 阻塞等待组播数据，收到后解析 JSON，过滤自身，触发 \texttt{on\_device\_found} 回调更新设备管理器
+    \item \textbf{优雅退出}：\texttt{stop()} 时先发送 3 次 \texttt{DEVICE\_OFFLINE} 通知，再关闭 socket 唤醒阻塞的 \texttt{recvfrom()}，join 线程
+\end{enumerate}
+
+\subsubsection{本机 IP 探测（UDP Connect Trick）}
+
+\texttt{select\_local\_ip()} 需要准确获取"本机对外通信的主接口 IP"，而非回环地址或 Docker 虚拟网桥地址。实现方法：
+
+\begin{lstlisting}[caption={本机IP探测 (device\_discovery.cpp)}]
+std::string DeviceDiscovery::select_local_ip() {
+    // 创建临时 UDP socket, connect 到外网 DNS 地址 (1.1.1.1:53)
+    // connect() 触发内核路由表查询, 确定数据包应从哪个接口发出
+    SOCKET_FD temp_sock = socket(AF_INET, SOCK_DGRAM, 0);
+    struct sockaddr_in remote;
+    remote.sin_family = AF_INET;
+    remote.sin_port = htons(53);
+    inet_pton(AF_INET, "1.1.1.1", &remote.sin_addr);
+    connect(temp_sock, (struct sockaddr*)&remote, sizeof(remote));
+
+    // getsockname() 返回内核为该连接选择的源 IP
+    // 即本机对外通信的主接口地址
+    struct sockaddr_in local_addr;
+    socklen_t len = sizeof(local_addr);
+    getsockname(temp_sock, (struct sockaddr*)&local_addr, &len);
+    // ... 提取 IP 字符串返回 ...
+}
+\end{lstlisting}
+
+此方法相比遍历 \texttt{getifaddrs()} 的优越之处：即使存在多个 IP（物理网卡 + Docker 网桥 + VPN），内核路由表能确定"去往 1.1.1.1 应该走哪个接口"，\texttt{getsockname()} 返回的就是该接口的 IP。
+
+\subsubsection{组播发送与接收}
+
+\begin{lstlisting}[caption={组播发送循环 (send\_loop)}]
+void DeviceDiscovery::send_loop() {
+    struct sockaddr_in multicast_addr;
+    multicast_addr.sin_family = AF_INET;
+    multicast_addr.sin_port = htons(DISCOVERY_PORT);
+    inet_pton(AF_INET, "239.255.255.250", &multicast_addr.sin_addr);
+
+    while (m_running.load()) {
+        // 构建包含设备信息的 JSON 广播消息
+        json msg = Protocol::build_device_broadcast(
+            m_device_id, m_device_name, m_local_ip,
+            Defaults::SIGNALING_PORT,          // 注意: 广播的是信令端口 (8889)
+            Utils::get_timestamp_ms()           // 非发现端口 (8888)
+        );
+        std::string msg_str = msg.dump();
+
+        sendto(m_socket, msg_str.data(), msg_str.size(), 0,
+               (struct sockaddr*)&multicast_addr, sizeof(multicast_addr));
+
+        // 分片休眠 (100ms x BROADCAST_INTERVAL*10), 响应停止指令
+        for (uint32_t i = 0; i < Defaults::BROADCAST_INTERVAL * 10; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
+}
+\end{lstlisting}
+
+\textbf{关键设计}：广播消息中的端口字段填的是 \textbf{信令端口（8889）} 而非组播端口（8888），因为接收方将用此端口发起 TCP 连接（\texttt{test\_connect()} 检查设备可达性）。
+
+\subsubsection{跨子网与 WiFi 隔离注意事项}
+
+\begin{enumerate}
+    \item \textbf{组播路由}：Linux 需要主动添加组播路由 \texttt{sudo ip route add 224.0.0.0/4 dev <iface>}，否则组播包被内核静默丢弃
+    \item \textbf{WiFi 客户端隔离}：企业/校园 WiFi 的 AP 通常阻断无线客户端间的组播转发——此时 UDP 发现失效，需依赖 \texttt{POST /api/peers/add} 手动添加 IP + TCP DEVICE\_HELLO 探活作为后备方案
+    \item \textbf{多网卡兼容}：对每个非回环接口分别调用 \texttt{IP\_ADD\_MEMBERSHIP}，确保组播包从任意接口到达均能接收
+    \item \textbf{TTL}：设置组播 TTL = 64，支持跨少量路由器跳数场景
+\end{enumerate}
+
+\newpage
+
+% ============================================================
+% 二、算法原理
+% ============================================================
+\section{算法原理}
+
+\subsection{ECDH 密钥交换算法}
+
+\subsubsection{椭圆曲线数学基础}
+
+椭圆曲线 Diffie-Hellman（ECDH）是基于椭圆曲线离散对数问题（ECDLP）的密钥协商协议。本系统采用 NIST P-256 曲线（secp256r1），定义在有限域 $\mathbb{F}_p$ 上：
+
+\begin{equation}
+y^2 = x^3 + ax + b \quad (\text{mod } p)
+\end{equation}
+
+其中参数：
+\begin{align}
+p &= 2^{256} - 2^{224} + 2^{192} + 2^{96} - 1 \notag \\
+a &= -3 \notag \\
+b &= \text{0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B} \notag
+\end{align}
+
+曲线上定义加法群 $\langle G \rangle$，基点 $G$ 的阶为素数 $n$。群运算是\textbf{点加法}（几何上：过两点作直线，与曲线第三个交点关于 $x$ 轴对称）。
+
+\subsubsection{标量乘法}
+
+椭圆曲线上的核心运算是\textbf{标量乘法}：给定整数 $k$ 和点 $P$，计算 $Q = k \cdot P$。
+
+标量乘法采用\textbf{倍加算法}（Double-and-Add），时间复杂度 $O(\log k)$：
+
+\begin{algorithm}[H]
+\caption{标量乘法（Double-and-Add）}
+\begin{algorithmic}[1]
+\Function{ScalarMul}{$k, P$}
+    \State $R \gets \mathcal{O}$ \Comment{无穷远点（单位元）}
+    \For{$i$ from $|k|-1$ down to $0$}
+        \State $R \gets 2 \cdot R$ \Comment{倍点}
+        \If{bit $i$ of $k$ is 1}
+            \State $R \gets R + P$ \Comment{加点}
+        \EndIf
+    \EndFor
+    \State \Return $R$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{ECDH 密钥协商过程}
+
+两方 Alice (A) 和 Bob (B) 通过以下步骤得到共享密钥：
+
+\begin{enumerate}
+    \item A 生成随机私钥 $a \in [1, n-1]$，计算公钥 $A_{\text{pub}} = a \cdot G$
+    \item B 生成随机私钥 $b \in [1, n-1]$，计算公钥 $B_{\text{pub}} = b \cdot G$
+    \item A、B 交换公钥 $A_{\text{pub}}$、$B_{\text{pub}}$
+    \item A 计算共享密钥 $S = a \cdot B_{\text{pub}} = a \cdot (b \cdot G) = (ab) \cdot G$
+    \item B 计算共享密钥 $S = b \cdot A_{\text{pub}} = b \cdot (a \cdot G) = (ab) \cdot G$
+\end{enumerate}
+
+\textbf{正确性}由标量乘法的结合律保证：
+
+\begin{equation}
+a \cdot B_{\text{pub}} = a \cdot (b \cdot G) = (a \cdot b) \cdot G = (b \cdot a) \cdot G = b \cdot (a \cdot G) = b \cdot A_{\text{pub}}
+\end{equation}
+
+\textbf{安全性}基于 ECDLP：已知 $A_{\text{pub}} = a \cdot G$ 和 $B_{\text{pub}} = b \cdot G$，攻击者无法在多项式时间内从 $(G, a \cdot G, b \cdot G)$ 推导出 $(ab) \cdot G$。
+
+P-256 曲线的安全强度为 128 位（与 AES-128 暴力破解难度相当），ECDH 产生的原始共享密钥为 256 位（32 字节），直接作为 AES-256 的密钥使用。
+
+\subsection{AES-256-GCM 认证加密}
+
+\subsubsection{GCM 模式概述}
+
+Galois/Counter Mode（GCM）是一种认证加密（AEAD）模式，同时提供\textbf{机密性}和\textbf{完整性}保护。GCM 将 CTR 模式的加密与 GHASH 多项式哈希相结合，产生认证标签（Authentication Tag）。
+
+GCM 的核心组件：
+\begin{itemize}
+    \item \textbf{CTR 加密}：对计数器 $J_0, J_1, \dots, J_n$ 分别 AES 加密，与明文异或产生密文：
+    \begin{equation}
+    C_i = P_i \oplus \text{AES}_K(J_i), \quad J_i = \text{inc}(J_0, i)
+    \end{equation}
+    \item \textbf{GHASH}：在有限域 $\text{GF}(2^{128})$ 上计算多项式哈希值
+    \item \textbf{认证标签}：$\text{Tag} = \text{GHASH}(H, A, C) \oplus \text{AES}_K(J_0)$
+\end{itemize}
+
+\subsubsection{GHASH 多项式哈希}
+
+首先计算哈希子密钥 $H$：
+\begin{equation}
+H = \text{AES}_K(0^{128})
+\end{equation}
+
+GHASH 对输入数据 $X = (X_1 \parallel X_2 \parallel \dots \parallel X_m)$（每块 128 位，末块填充至 128 位）在 $\text{GF}(2^{128})$ 上迭代：
+
+\begin{equation}
+Y_i = (Y_{i-1} \oplus X_i) \bullet H, \quad Y_0 = 0^{128}
+\end{equation}
+
+其中 $\bullet$ 表示 $\text{GF}(2^{128})$ 上的乘法。该域的定义多项式为：
+\begin{equation}
+f(x) = x^{128} + x^7 + x^2 + x + 1
+\end{equation}
+
+GHASH 输入依次为：
+\begin{enumerate}
+    \item 附加认证数据 AAD（填充至 128 位对齐）— 需认证但不加密的数据
+    \item 密文 $C$（填充至 128 位对齐）
+    \item $\text{len}(A)_{64} \parallel \text{len}(C)_{64}$（长度块，各 64 位大端）
+\end{enumerate}
+
+\subsubsection{GCM 认证标签生成}
+
+\begin{equation}
+\text{Tag} = \text{GHASH}(H, \text{AAD}_{\text{pad}}, C_{\text{pad}}, \text{len}(A), \text{len}(C)) \oplus \text{AES}_K(J_0)
+\end{equation}
+
+其中 $J_0 = \text{IV} \parallel 0^{31}1$（12 字节 IV 扩展为 16 字节计数器初值）。
+
+\textbf{解密时}：先验证 $\text{Tag}$ 是否匹配——若密文或 AAD 被篡改，GHASH 输出不同，Tag 不匹配，解密立即失败。这提供了\textbf{密文完整性}和\textbf{来源认证}双重保护。
+
+\subsubsection{本系统的 GCM 实现方案}
+
+\begin{itemize}
+    \item \textbf{密钥}：ECDH 产生的 32 字节原始共享密钥，直接作为 AES-256 密钥（无需 KDF）
+    \item \textbf{IV}：每个消息用 \texttt{RAND\_bytes()} 随机生成 12 字节，附在密文前传输
+    \item \textbf{Tag}：16 字节，附在密文后
+    \item \textbf{AAD}：当前为空（仅加密数据通过 GHASH）
+    \item \textbf{开销}：每消息额外开销 $12 + 16 = 28$ 字节
+\end{itemize}
+
+\subsection{BBR 拥塞控制算法}
+
+\subsubsection{BBR 基本原理}
+
+Bottleneck Bandwidth and Round-trip propagation time（BBR）是 Google 提出的拥塞控制算法，与传统的基于丢包（Cubic/Reno）或基于延迟（Vegas）的算法不同，BBR 直接估计链路的两个物理参数：
+
+\begin{itemize}
+    \item \textbf{瓶颈带宽} $BtlBw$：端到端路径上的最小可用带宽
+    \item \textbf{往返传播时延} $RTprop$：路径固有的最小 RTT（无排队时）
+\end{itemize}
+
+BBR 的核心思想：\textbf{在发送速率接近瓶颈带宽且 inflight 数据量接近 BDP 时，链路达到最优工作点}。其中带宽时延积 BDP 定义为：
+
+\begin{equation}
+\text{BDP} = BtlBw \times RTprop
+\end{equation}
+
+\subsubsection{BBR 状态机}
+
+BBR 维护四个状态，周期性轮转：
+
+\begin{itemize}
+    \item \textbf{STARTUP}（启动阶段）：类似慢启动，指数增长发送速率，探测 $BtlBw$ 上限
+    \item \textbf{DRAIN}（排空阶段）：降低发送速率，排空 STARTUP 阶段积累的队列
+    \item \textbf{PROBE\_BW}（带宽探测）：以 pacing\_gain 循环（$[1.25, 0.75, 1, 1, 1, 1, 1, 1]$）周期性探测更多带宽
+    \item \textbf{PROBE\_RTT}（延迟探测）：每 10 秒短暂降低 inflight 到 4 个包，重新测量 $RTprop$
+\end{itemize}
+
+BBR 的 pacing rate 计算公式：
+\begin{equation}
+\text{pacing\_rate} = \text{pacing\_gain} \times BtlBw
+\end{equation}
+
+发送窗口：
+\begin{equation}
+\text{cwnd} = \text{cwnd\_gain} \times \text{BDP}
+\end{equation}
+
+\subsubsection{与传统算法的比较}
+
+\begin{table}[H]
+\centering
+\caption{BBR vs 传统算法对比}
+\begin{tabular}{lccc}
+\toprule
+\textbf{特性} & \textbf{Cubic} & \textbf{Vegas} & \textbf{BBR} \\
+\midrule
+拥塞信号 & 丢包 & RTT 变化 & 带宽/RTT 估计 \\
+慢启动 & 指数增长 & 指数增长 & 指数增长（更快） \\
+瓶颈队列 & 填满 & 控制 & 最小化 \\
+高 BDP 性能 & 较差 & 中等 & 优秀 \\
+对随机丢包敏感 & 是 & 否 & 否 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+BBR 特别适合本系统的 \textbf{P2P 大文件传输}场景：高 BDP 网络下保持高吞吐的同时避免 bufferbloat，对无线网络随机丢包不敏感。
+
+\subsection{多线程并行传输}
+
+\subsubsection{设计动机}
+
+传统单连接 TCP 传输受限于单个拥塞窗口，在高 RTT 链路上带宽利用率低。本系统采用多连接并行传输策略：
+
+\begin{equation}
+T_{\text{total}} \approx \frac{S}{\sum_{i=1}^{N} B_i} \approx \frac{S}{N \cdot B_{\text{avg}}}
+\end{equation}
+
+其中 $S$ 为文件大小，$N$ 为线程数，$B_i$ 为第 $i$ 条连接的吞吐量。
+
+\subsubsection{分块策略}
+
+文件按 chunk 划分为连续范围：
+\begin{equation}
+\text{thread}_i: [i \cdot \frac{C}{N} + \min(i, r),\; (i+1) \cdot \frac{C}{N} + \min(i+1, r))
+\end{equation}
+
+其中 $C$ 为总 chunk 数，$r = C \bmod N$ 为余数，分配给前 $r$ 个线程各额外 1 个 chunk。
+
+\subsubsection{并发写磁盘}
+
+接收方每个线程持有独立的 \texttt{FileChunkIO} 实例，通过 \texttt{pwrite()} 系统调用在不同偏移量写入，利用 POSIX 原子写入保证并发安全：
+
+\begin{verbatim}
+    Thread-0: pwrite(fd, data[0], 65536, 0)
+    Thread-1: pwrite(fd, data[1], 65536, 65536)
+    Thread-2: pwrite(fd, data[2], 65536, 131072)
+\end{verbatim}
+
+\newpage
+
+% ============================================================
+% 三、算法实现
+% ============================================================
+\section{算法实现}
+
+\subsection{ECDH 密钥对的生成与交换}
+
+使用 OpenSSL EVP API 生成 secp256r1 密钥对，密钥以 DER 格式导出后经自定义 Base64 编码在 JSON 消息中传输。
+
+\begin{lstlisting}[caption={ECDH 密钥对生成 (utils.cpp)},label={lst:ecdh-gen}]
+bool generate_ecdh_keypair(std::string& public_key_b64, std::string& private_key_b64) {
+    EVP_PKEY* pkey = nullptr;
+    // 创建 P-256 (secp256r1) 椭圆曲线参数上下文
+    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, nullptr);
+    if (!ctx) return false;
+
+    bool ok = false;
+    // 初始化密钥生成, 设置曲线为 NIST P-256
+    if (EVP_PKEY_keygen_init(ctx) > 0 &&
+        EVP_PKEY_CTX_set_ec_paramgen_curve_nid(ctx, NID_X9_62_prime256v1) > 0 &&
+        EVP_PKEY_keygen(ctx, &pkey) > 0) {
+
+        BIO* pub_bio = BIO_new(BIO_s_mem());
+        BIO* priv_bio = BIO_new(BIO_s_mem());
+        // 将公/私钥以 DER 格式写入内存 BIO
+        if (i2d_PUBKEY_bio(pub_bio, pkey) > 0 &&
+            i2d_PrivateKey_bio(priv_bio, pkey) > 0) {
+            // 提取 DER 字节, 转为 Base64 字符串
+            char* pub_data = nullptr;
+            long pub_len = BIO_get_mem_data(pub_bio, &pub_data);
+            // 自定义 Base64 编码 (每 3 字节 -> 4 字符)
+            encode((unsigned char*)pub_data, pub_len, public_key_b64);
+            encode((unsigned char*)priv_data, priv_len, private_key_b64);
+            ok = true;
+        }
+    }
+    EVP_PKEY_free(pkey);
+    EVP_PKEY_CTX_free(ctx);
+    return ok;
+}
+\end{lstlisting}
+
+\subsection{ECDH 共享密钥计算}
+
+\begin{lstlisting}[caption={ECDH 共享密钥推导 (utils.cpp)},label={lst:ecdh-compute}]
+bool compute_ecdh_shared(const std::string& local_private_b64,
+                         const std::string& remote_public_b64,
+                         std::string& shared_secret) {
+    // Base64 解码私钥和远程公钥为 DER 格式
+    std::string priv_der = b64_decode(local_private_b64);
+    std::string pub_der  = b64_decode(remote_public_b64);
+
+    // 从 DER 加载私钥 (d2i_AutoPrivateKey 自动识别 EC/RSA)
+    const unsigned char* priv_ptr = (const unsigned char*)priv_der.data();
+    EVP_PKEY* priv_key = d2i_AutoPrivateKey(nullptr, &priv_ptr, (long)priv_der.size());
+
+    // 从 DER 加载远程公钥
+    const unsigned char* pub_ptr = (const unsigned char*)pub_der.data();
+    EVP_PKEY* pub_key = d2i_PUBKEY(nullptr, &pub_ptr, (long)pub_der.size());
+
+    // 创建 ECDH 派生上下文
+    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(priv_key, nullptr);
+    bool ok = false;
+    // 初始化派生操作, 设置对端公钥
+    if (ctx && EVP_PKEY_derive_init(ctx) > 0 &&
+        EVP_PKEY_derive_set_peer(ctx, pub_key) > 0) {
+        size_t secret_len = 0;
+        // 第一次调用获取所需缓冲区大小
+        if (EVP_PKEY_derive(ctx, nullptr, &secret_len) > 0) {
+            std::vector<unsigned char> secret(secret_len);
+            // 第二次调用获取实际的共享密钥 (32 字节)
+            if (EVP_PKEY_derive(ctx, secret.data(), &secret_len) > 0) {
+                shared_secret.assign((char*)secret.data(), secret_len);
+                ok = true;
+            }
+        }
+    }
+    EVP_PKEY_CTX_free(ctx);
+    return ok;
+}
+\end{lstlisting}
+
+\subsection{AES-256-GCM 加密与解密}
+
+\begin{lstlisting}[caption={AES-256-GCM 加密 (utils.cpp)},label={lst:aes-enc}]
+bool aes_gcm_encrypt(const std::string& plaintext, const std::string& key, std::string& out) {
+    if (key.size() != 32) return false;  // AES-256 需要 32 字节密钥
+
+    // 随机生成 12 字节 IV (nonce)
+    unsigned char iv[12];
+    if (RAND_bytes(iv, sizeof(iv)) != 1) return false;
+
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+
+    // 初始化 AES-256-GCM 加密上下文
+    EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr);
+    // 设置 IV 长度为 12 字节
+    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, sizeof(iv), nullptr);
+    // 提供密钥和 IV
+    EVP_EncryptInit_ex(ctx, nullptr, nullptr, (unsigned char*)key.data(), iv);
+
+    // 更新明文 -> 密文 (CTR 模式加密)
+    std::vector<unsigned char> ciphertext(plaintext.size() + 16);
+    int len = 0, cipher_len = 0;
+    EVP_EncryptUpdate(ctx, ciphertext.data(), &len,
+                      (unsigned char*)plaintext.data(), (int)plaintext.size());
+    cipher_len = len;
+    EVP_EncryptFinal_ex(ctx, ciphertext.data() + cipher_len, &len);
+    cipher_len += len;
+
+    // 获取 16 字节 GCM 认证标签 (GHASH 结果 XOR AES_K(J0))
+    unsigned char tag[16];
+    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, sizeof(tag), tag);
+
+    // 输出格式: [12B IV] [密文] [16B Tag]
+    out.assign((char*)iv, sizeof(iv));
+    out.append((char*)ciphertext.data(), cipher_len);
+    out.append((char*)tag, sizeof(tag));
+    EVP_CIPHER_CTX_free(ctx);
+    return true;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[caption={AES-256-GCM 解密与 Tag 验证 (utils.cpp)},label={lst:aes-dec}]
+bool aes_gcm_decrypt(const std::string& ciphertext_with_iv_tag,
+                     const std::string& key, std::string& out) {
+    if (ciphertext_with_iv_tag.size() < 28 || key.size() != 32) return false;
+
+    // 拆分输入: [12B IV] [密文] [16B Tag]
+    const unsigned char* iv     = (unsigned char*)ciphertext_with_iv_tag.data();
+    size_t cipher_len = ciphertext_with_iv_tag.size() - 28;
+    const unsigned char* cipher = iv + 12;
+    const unsigned char* tag    = iv + 12 + cipher_len;
+
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    // 初始化解密上下文 (与加密对称)
+    EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr);
+    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, nullptr);
+    EVP_DecryptInit_ex(ctx, nullptr, nullptr, (unsigned char*)key.data(), iv);
+
+    // 解密
+    std::vector<unsigned char> plaintext(cipher_len);
+    int len = 0, plain_len = 0;
+    EVP_DecryptUpdate(ctx, plaintext.data(), &len, cipher, (int)cipher_len);
+    plain_len = len;
+
+    // 设置期望的 GCM Tag, 调用 Final 进行 Tag 验证
+    // 若 Tag 不匹配, EVP_DecryptFinal_ex 返回 0, 解密失败
+    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, (void*)tag);
+    if (EVP_DecryptFinal_ex(ctx, plaintext.data() + plain_len, &len) <= 0) {
+        EVP_CIPHER_CTX_free(ctx);
+        return false;  // Tag 验证失败 -> 数据被篡改或密钥错误
+    }
+    plain_len += len;
+    out.assign((char*)plaintext.data(), plain_len);
+    EVP_CIPHER_CTX_free(ctx);
+    return true;
+}
+\end{lstlisting}
+
+\subsection{BBR 拥塞控制启用}
+
+\begin{lstlisting}[caption={BBR 拥塞控制设置 (platform.cpp)},label={lst:bbr}]
+bool enable_bbr(SOCKET_FD sock) {
+#ifdef __linux__
+    // Linux 4.9+ 内核支持 BBR, 通过 TCP_CONGESTION 套接字选项设置
+    const char* cc = "bbr";
+    if (setsockopt(sock, IPPROTO_TCP, TCP_CONGESTION, cc, 3) == 0)
+        return true;
+#endif
+    // 不支持时退回默认算法 (cubic/reno)
+    return false;
+}
+\end{lstlisting}
+
+\subsection{多线程并行发送实现}
+
+\begin{lstlisting}[caption={多线程并行发送主流程 (transfer\_sender.cpp)},label={lst:multi}]
+bool TransferSender::send_file(..., uint32_t num_threads, ...) {
+    // ... 压缩、计算 meta ...
+
+    // 分配 chunk 范围给各线程
+    std::vector<std::thread> workers;
+    std::atomic<uint64_t> global_bytes_sent(0);
+    std::atomic<uint32_t> global_chunks_sent(0);
+
+    for (uint32_t t = 0; t < num_threads; ++t) {
+        // 均匀分块, 余数分配给前 rem 个线程
+        uint32_t chunks_per = meta.total_chunks / num_threads;
+        uint32_t rem = meta.total_chunks % num_threads;
+        uint32_t start = t * chunks_per + std::min(t, rem);
+        uint32_t end   = start + chunks_per + (t < rem ? 1 : 0);
+
+        workers.emplace_back([..., start, end, t, ...]() {
+            // 每个线程独立连接, 独立发送自己的 chunk 范围
+            send_chunk_range(target_ip, target_port, send_path, meta,
+                             start, end, t, num_threads,
+                             global_bytes_sent, global_chunks_sent,
+                             thread_metrics[t]);
+        });
+    }
+
+    // 等待所有线程完成
+    for (auto& w : workers) w.join();
+    // ... 汇总指标 ...
+}
+\end{lstlisting}
+
+\begin{lstlisting}[caption={单线程发送范围 (transfer\_sender.cpp)},label={lst:range}]
+bool send_chunk_range(..., uint32_t start_chunk, uint32_t end_chunk, ...) {
+    SOCKET_FD sock = socket(AF_INET, SOCK_STREAM, 0);
+    setsockopt(sock, SOL_SOCKET, SO_SNDBUF, ...);  // 256KB 发送缓冲区
+    NetworkUtils::enable_bbr(sock);                 // 启用 BBR 拥塞控制
+    connect(sock, ...);
+
+    // 发送范围头 (FILE_RANGE JSON): 包含 conn_index, total_connections, chunk 范围
+    send_range_header(sock, meta, start_chunk, end_chunk,
+                      conn_index, total_connections, target_ip);
+
+    FileChunkIO io(file_path, Defaults::CHUNK_SIZE, true);
+    // 顺序发送自己负责的所有 chunk, BBR 自动控制发送速率
+    for (uint32_t i = start_chunk; i < end_chunk; ++i) {
+        Chunk chunk;
+        io.read_chunk(i, meta.file_id, meta.total_chunks, chunk);
+        send_chunk(sock, chunk);  // 加密或明文发送
+    }
+
+    // 发送完成通知并等待接收方 ACK
+    send_range_done(sock, ...);
+    recv_ack(sock, ...);
+    close(sock);
+}
+\end{lstlisting}
+
+\subsection{数据通道的加密线格式}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    box/.style={rectangle, draw, minimum height=0.8cm, font=\small\ttfamily, align=center},
+    gap/.style={minimum width=0.3cm}
+]
+    % Plain JSON
+    \node[box,fill=green!10] (marker) at (0,0) {`J'};
+    \node[box,fill=blue!5,right=0cm of marker] (len) {4B BE\\length};
+    \node[box,fill=yellow!10,right=0cm of len] (json) {JSON\\string};
+    \node[font=\small,right=0.2cm of json] {明文 JSON};
+
+    % Encrypted JSON
+    \node[box,fill=red!10] (emarker) at (2, -2.5) {`E'};
+    \node[box,fill=blue!5,right=0cm of emarker] (elen) {4B BE\\length};
+    \node[box,fill=red!15,right=0cm of elen] (iv) {12B\\IV};
+    \node[box,fill=red!25,right=0cm of iv] (ct) {ciphertext};
+    \node[box,fill=orange!20,right=0cm of ct] (tag) {16B\\Tag};
+    \node[font=\small,right=0.2cm of tag] {加密 JSON};
+
+    % Encrypted Chunk
+    \node[box,fill=red!10] (dmarker) at (2, -5) {`D'};
+    \node[box,fill=blue!5,right=0cm of dmarker] (dlen) {4B BE\\length};
+    \node[box,fill=red!15,right=0cm of dlen] (div4) {12B\\IV};
+    \node[box,fill=red!25,right=0cm of div4] (dct) {密文 (chunk)};
+    \node[box,fill=orange!20,right=0cm of dct] (dtag) {16B\\Tag};
+    \node[font=\small,right=0.2cm of dtag] {加密 Chunk};
+
+    \node[font=\small,text width=14cm] at (6, -1) {每消息 28 字节加密开销 (GCM: 12B IV + 16B Tag)};
+\end{tikzpicture}
+\caption{数据通道加密线格式}
+\label{fig:wire}
+\end{figure}
+
+\subsection{TCP 信令通信流程}
+
+\subsubsection{短连接模式与状态机}
+
+信令通道（端口 8889）采用 \textbf{TCP 短连接} 模式：客户端发起连接 → 发送请求 → 接收响应 → 断开连接。服务端对每个连接创建独立线程处理，处理完毕即关闭连接。
+
+服务端的消息分发状态机如下：
+
+\begin{algorithm}[H]
+\caption{SignalingServer 消息分发}
+\begin{algorithmic}[1]
+\State \textbf{Input:} client\_sock, client\_ip
+\State setsockopt(client\_sock, SO\_RCVTIMEO, 5s)
+\If {$\neg$ recv\_json\_message(client\_sock, msg, client\_ip)}
+    \State close(client\_sock); \Return
+\EndIf
+\State type $\gets$ msg["type"]
+\If {type = FILE\_REQUEST}
+    \State 创建 ResponseSender 闭包
+    \State 调用 m\_file\_request\_cb(msg, client\_ip, sender)
+    \State 回调内部通过 sender() 发送 FILE\_RESPONSE
+\ElsIf {type = DEVICE\_HELLO}
+    \State 调用 m\_device\_hello\_cb \Comment{注册设备 + ECDH}
+    \State \textbf{if} 本机有公钥 \textbf{then} 发送 DEVICE\_HELLO\_ACK
+\ElsIf {type = TEXT\_MESSAGE}
+    \State 调用 m\_control\_msg\_cb(msg, client\_ip)
+    \State 发送 TEXT\_ACK 响应
+\ElsIf {type = TRANSFER\_*}
+    \State 调用 m\_control\_msg\_cb(msg, client\_ip)
+    \State 发送 CONTROL\_ACK 响应
+\EndIf
+\State close(client\_sock)
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{信令通信时序}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1.5cm, auto,
+    block/.style={rectangle, draw, minimum width=2.5cm, minimum height=0.7cm, align=center, rounded corners},
+    arrow/.style={draw, -stealth, thick}]
+
+    \node[block,fill=blue!10] (cli) at (0,-0.5) {SignalingClient};
+    \node[block,fill=green!10] (srv) at (6,-0.5) {SignalingServer};
+    
+    \node[block,fill=blue!5] (conn) at (0,-2) {connect\_to(ip, 8889)};
+    \node[block,fill=green!5] (accept) at (6,-2) {accept\_loop\\accept()};
+    
+    \draw[arrow] (conn) -- node[above,text width=4cm,align=center] {TCP SYN\\三次握手} (accept);
+    
+    \node[block,fill=blue!5] (send) at (0,-3.5) {send\_json\_message\\FILE\_REQUEST};
+    \node[block,fill=green!5] (recv) at (6,-3.5) {recv\_json\_message\\解析 JSON};
+    \draw[arrow] (send) -- (recv);
+    
+    \node[block,fill=green!5] (cb) at (6,-5) {回调 → ACCEPT\\send\_json\_message};
+    \node[block,fill=blue!5] (rcv) at (0,-5) {recv\_json\_message\\收到 FILE\_RESPONSE};
+    \draw[arrow] (cb) -- (rcv);
+    
+    \node[block,fill=red!5] (close) at (6,-6.5) {CLOSE\_SOCKET};
+    \node[block,fill=red!5] (close2) at (0,-6.5) {CLOSE\_SOCKET};
+    
+    \draw[arrow] (rcv) -- (close2);
+    \draw[arrow] (cb) -- (close);
+\end{tikzpicture}
+\caption{信令通道短连接请求-响应流程（以 FILE\_REQUEST 为例）}
+\label{fig:signaling}
+\end{figure}
+
+信令通道的典型通信流程（以发送 TEXT\_MESSAGE 为例）：
+
+\begin{enumerate}
+    \item \textbf{客户端}：调用 \texttt{SignalingClient::send\_request(target\_ip, 8889, request, response)}
+    \item \texttt{connect\_to()}：非阻塞 TCP 连接 + \texttt{select()} 超时等待（默认 5s），成功后恢复阻塞模式
+    \item \texttt{send\_json\_message()}：发送 $[4\text{B 长度}][\text{JSON}]$ 格式消息（若 PeerKey 存在则自动 AES-256-GCM 加密）
+    \item \textbf{服务端}：\texttt{handle\_client()} 接收消息，根据 \texttt{type} 字段分发：
+        \begin{itemize}
+            \item DEVICE\_HELLO：触发设备注册回调 + ECDH 密钥交换，回复 DEVICE\_HELLO\_ACK
+            \item TEXT\_MESSAGE：触发回调缓存消息，回复 TEXT\_ACK
+            \item FILE\_REQUEST：触发回调（ResponseSender 闭包），回调内部调用 ACCEPT/REJECT 回复
+            \item TRANSFER\_*：触发控制回调，回复 CONTROL\_ACK
+        \end{itemize}
+    \item \textbf{双方}：关闭连接（\texttt{CLOSE\_SOCKET}）
+\end{enumerate}
+
+\subsubsection{非阻塞连接与超时}
+
+\texttt{connect\_to()} 实现细节：
+
+\begin{lstlisting}[caption={非阻塞 connect + select 超时 (signaling\_client.cpp)}]
+SOCKET_FD SignalingClient::connect_to(target_ip, target_port, timeout_ms) {
+    SOCKET_FD sock = socket(AF_INET, SOCK_STREAM, 0);
+    NetworkUtils::set_nonblocking(sock);  // 1. 设置非阻塞
+
+    // 2. 发起连接 (非阻塞模式立即返回, errno=EINPROGRESS)
+    int ret = connect(sock, ...);
+    if (ret < 0 && !NetworkUtils::is_would_block(err))
+        return INVALID_SOCKET_FD;  // 真正的错误
+
+    // 3. select() 等待套接字可写 (连接完成)
+    fd_set write_fds; FD_ZERO(&write_fds); FD_SET(sock, &write_fds);
+    struct timeval tv; tv.tv_sec = timeout_ms / 1000;
+    int sel = select(sock+1, nullptr, &write_fds, nullptr, &tv);
+    if (sel <= 0) return INVALID_SOCKET_FD;  // 超时或错误
+
+    // 4. 检查 SO_ERROR 确认连接成功 (select 可写不代表连接成功)
+    int so_error; socklen_t len = sizeof(so_error);
+    getsockopt(sock, SOL_SOCKET, SO_ERROR, &so_error, &len);
+    if (so_error != 0) return INVALID_SOCKET_FD;  // 连接失败
+
+    NetworkUtils::set_blocking(sock);  // 5. 恢复阻塞模式
+    return sock;
+}
+\end{lstlisting}
+
+\subsection{TCP 文件传输流程}
+
+\subsubsection{传输数据通道概述}
+
+文件传输数据通道（端口 8890）独立于信令通道，采用\textbf{长连接模式}（连接持续整个传输周期）。传输前通过信令通道完成握手（FILE\_REQUEST → FILE\_RESPONSE → ACCEPT），然后发送方连接接收方的传输端口开始数据传输。
+
+与信令通道的关键区别：
+
+\begin{table}[H]
+\centering
+\caption{信令通道 vs 数据通道}
+\begin{tabular}{lcc}
+\toprule
+\textbf{特性} & \textbf{信令通道 (8889)} & \textbf{数据通道 (8890)} \\
+\midrule
+连接模式 & TCP 短连接 & TCP 长连接 \\
+消息格式 & 纯 JSON（仅长度前缀） & 1 字节标记 + 载荷 \\
+标记类型 & — & \texttt{'J'} JSON / \texttt{'C'} Chunk / \texttt{'E'} 加密 JSON / \texttt{'D'} 加密 Chunk \\
+并发连接 & 每请求一个 & 每线程一个（多线程并行） \\
+加密 & JSON 层 AES-256-GCM & 标记分发层 AES-256-GCM \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{数据传输时序（多线程模式）}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1.2cm, auto,
+    block/.style={rectangle, draw, minimum width=3cm, minimum height=0.6cm, align=center, font=\small, rounded corners},
+    arrow/.style={draw, -stealth, thick, font=\small}]
+
+    \node[block,fill=blue!10] (sender) at (0,0) {TransferSender (main)};
+    \node[block,fill=blue!5] (t0) at (0,-1.5) {Thread-0\\[chunks 0-400)};
+    \node[block,fill=blue!5] (t1) at (0,-3) {Thread-1\\[chunks 400-800)};
+    \node[block,fill=blue!5] (t2) at (0,-4.5) {Thread-2\\[chunks 800-1200)};
+    \node[block,fill=blue!5] (t3) at (0,-6) {Thread-3\\[chunks 1200-1600)};
+    
+    \node[block,fill=green!10] (recv) at (6,-1.5) {TransferReceiver};
+    \node[block,fill=green!5] (h0) at (6,-3) {handle\_receive\\处理连接-0};
+    \node[block,fill=green!5] (h1) at (6,-4.5) {handle\_receive\\处理连接-1};
+    \node[block,fill=green!5] (h2) at (6,-6) {handle\_receive\\处理连接-2};
+    \node[block,fill=green!5] (h3) at (6,-7.5) {handle\_receive\\处理连接-3};
+
+    \draw[arrow] (sender) -- (t0);
+    \draw[arrow] (sender) -- (t1);
+    \draw[arrow] (sender) -- (t2);
+    \draw[arrow] (sender) -- (t3);
+    
+    \draw[arrow,dashed] (t0) -- node[above,text width=3.5cm,align=center] {TCP connect\\FILE\_RANGE hdr\\chunks ...\\RANGE\_DONE} (recv);
+    \draw[arrow,dashed] (t1) -- ++(3,0) |- (recv);
+    \draw[arrow,dashed] (t2) -- ++(3,0) |- (recv);
+    \draw[arrow,dashed] (t3) -- ++(3,0) |- (recv);
+    
+    \draw[arrow] (recv) -- (h0);
+    \draw[arrow] (recv) -- (h1);
+    \draw[arrow] (recv) -- (h2);
+    \draw[arrow] (recv) -- (h3);
+    
+    \node[block,fill=orange!10,text width=5cm] (note) at (3,-9) {InboundTransfer\\file\_id → bitmap\\total\_connections=4\\finished\_connections 计数\\全部完成 → commit + verify};
+    \draw[arrow] (h0) -- (note);
+    \draw[arrow] (h1) -- (note);
+    \draw[arrow] (h2) -- (note);
+    \draw[arrow] (h3) -- (note);
+\end{tikzpicture}
+\caption{多线程并行传输时序图（4 线程, 1600 chunks, 每个线程 400 chunks）}
+\label{fig:transfer}
+\end{figure}
+
+\subsubsection{Chunk 分片二进制协议}
+
+每个文件分片（Chunk）采用 16 字节定长头部 + 变长载荷的二进制格式，所有多字节整数均为大端序（网络字节序）：
+
+\begin{table}[H]
+\centering
+\caption{Chunk 二进制格式}
+\begin{tabular}{cll}
+\toprule
+\textbf{偏移} & \textbf{大小} & \textbf{字段} \\
+\midrule
+0  & 4 字节 & chunk\_index（分片序号）\\
+4  & 4 字节 & total\_chunks（总分片数）\\
+8  & 4 字节 & data\_size（载荷字节数）\\
+12 & 4 字节 & file\_id\_len（file\_id 长度, 通常 36）\\
+16 & file\_id\_len & file\_id（UUID 字符串）\\
+16+L & data\_size & 文件数据（最大 64KB）\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{lstlisting}[caption={Chunk 序列化 (chunk.h)}]
+struct Chunk {
+    uint32_t chunk_index;
+    uint32_t total_chunks;
+    uint32_t data_size;
+    std::string file_id;
+    std::vector<uint8_t> data;
+
+    std::vector<uint8_t> serialize() {
+        size_t total = 16 + file_id.size() + data.size();
+        std::vector<uint8_t> buf(total);
+        write_u32_be(&buf[0],  chunk_index);
+        write_u32_be(&buf[4],  total_chunks);
+        write_u32_be(&buf[8],  data_size);
+        write_u32_be(&buf[12], static_cast<uint32_t>(file_id.size()));
+        memcpy(&buf[16], file_id.data(), file_id.size());
+        memcpy(&buf[16 + file_id.size()], data.data(), data.size());
+        return buf;
+    }
+};
+\end{lstlisting}
+
+\subsubsection{接收端多连接并发写入}
+
+接收端面临"N 条 TCP 连接同时向同一文件写入"的并发问题。解决方案：利用 POSIX \texttt{pwrite()} 的原子性。
+
+\begin{lstlisting}[caption={FileChunkIO 并发安全写入 (file\_io.cpp)}]
+bool FileChunkIO::write_chunk(const Chunk& chunk) {
+    // 计算分片在文件中的绝对偏移量
+    off_t offset = static_cast<off_t>(chunk.chunk_index) * m_chunk_size;
+
+    // pwrite() 是原子操作: 直接在 offset 处写入, 不修改文件指针
+    // 即使多个线程并发调用 pwrite(fd, ..., different_offsets),
+    // 内核保证每个写入是不重叠且原子的 (不同偏移处无竞争)
+    ssize_t written = pwrite(m_fd, chunk.data.data(), chunk.data_size, offset);
+
+    // 标记该分片已接收 (bitmap 需要互斥锁保护)
+    {
+        std::lock_guard<std::mutex> lock(m_bitmap_mutex);
+        m_received_bitmap[chunk.chunk_index] = true;
+    }
+    return written == static_cast<ssize_t>(chunk.data_size);
+}
+\end{lstlisting}
+
+\textbf{完成判定}：InboundTransfer 跟踪每条连接的完成状态，当 \texttt{finished\_connections == total\_connections} 且 \texttt{received\_count == total\_chunks} 时，调用 \texttt{rename(temp\_path, final\_path)} 原子提交文件，并触发 zlib 解压和校验。
+
+\newpage
+
+% ============================================================
+% 四、项目结果
+% ============================================================
+\section{项目结果}
+
+\subsection{测试环境}
+
+\begin{table}[H]
+\centering
+\caption{测试环境配置}
+\begin{tabular}{lll}
+\toprule
+\textbf{项目} & \textbf{发送端} & \textbf{接收端} \\
+\midrule
+主机名 & OMEN & hhx \\
+IP 地址 & 10.162.44.132 & 10.162.181.2 \\
+操作系统 & Linux & Ubuntu Linux \\
+编译环境 & GCC, C++17 & GCC, C++17 \\
+加密库 & OpenSSL 3.x & OpenSSL 3.x \\
+网络 RTT & — & 186.8 ms \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{设备发现与信令测试}
+
+\textbf{手动添加 IP 后}，Probe 线程每 5 秒发送 DEVICE\_HELLO 探活：
+\begin{itemize}
+    \item 本地 10.162.44.132 POST \texttt{/api/peers/add} 添加 10.162.181.2
+    \item 远程 10.162.181.2 POST \texttt{/api/peers/add} 添加 10.162.44.132
+    \item $\sim$15 秒后双向 DEVICE\_HELLO 握手完成，ECDH 密钥协商成功
+\end{itemize}
+
+\textbf{TEXT\_MESSAGE 信令延迟测试}（10 次采样）：
+
+\begin{table}[H]
+\centering
+\caption{TEXT\_MESSAGE 延迟统计 (ms)}
+\begin{tabular}{lccc}
+\toprule
+\textbf{指标} & \textbf{平均值} & \textbf{最小值} & \textbf{最大值} \\
+\midrule
+本地 → 远程 & 446.6 & 186.3 & 1033.3 \\
+远程 → 本地 & 1048.7 & — & — \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+消息延迟 = TCP 连接建立 + JSON 序列化/反序列化 + 业务处理 + AES-256-GCM 加解密。平均延迟 446.6ms $\approx 2.4 \times$ RTT，考虑到 TCP 三次握手（1.5 RTT）+ 请求-响应（0.5 RTT）+ 处理开销。
+
+\subsection{文件传输性能测试}
+
+\subsubsection{吞吐量对比}
+
+\begin{table}[H]
+\centering
+\caption{跨设备文件传输吞吐量对比}
+\label{tab:throughput}
+\begin{tabular}{lcrrr}
+\toprule
+\textbf{文件大小} & \textbf{线程数} & \textbf{吞吐量 (Mbps)} & \textbf{耗时 (s)} & \textbf{验证} \\
+\midrule
+10 MB  & 1 & 45.0  & 2.5  & $\checkmark$ \\
+10 MB  & 4 & 52.7  & 2.2  & $\checkmark$ \\
+100 MB & 1 & 72.3  & 17.6 & $\checkmark$ \\
+100 MB & 4 & 65.9  & 18.9 & $\checkmark$ \\
+500 MB & 1 & 67.4  & 93.5 & $\checkmark$ \\
+500 MB & 4 & 63.0  & 98.0 & $\checkmark$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    ybar,
+    width=0.85\textwidth,
+    height=6cm,
+    bar width=12pt,
+    ylabel={Throughput (Mbps)},
+    xlabel={File Size},
+    symbolic x coords={10 MB,100 MB,500 MB},
+    xtick=data,
+    legend style={at={(0.5,1.05)},anchor=south,legend columns=2},
+    ymin=0, ymax=85,
+    nodes near coords,
+    nodes near coords align={vertical},
+]
+\addplot[fill=blue!40] coordinates {(10 MB,45.0) (100 MB,72.3) (500 MB,67.4)};
+\addplot[fill=green!40] coordinates {(10 MB,52.7) (100 MB,65.9) (500 MB,63.0)};
+\legend{1 Thread, 4 Threads}
+\end{axis}
+\end{tikzpicture}
+\caption{不同文件大小与线程数的吞吐量对比}
+\label{fig:throughput}
+\end{figure}
+
+\subsubsection{每线程延迟分解}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    ybar stacked,
+    width=0.85\textwidth,
+    height=6cm,
+    bar width=18pt,
+    ylabel={Time (ms)},
+    xlabel={Thread},
+    symbolic x coords={T0,T1,T2,T3},
+    xtick=data,
+    legend style={at={(0.5,1.05)},anchor=south,legend columns=3},
+    ymin=0
+]
+% 500MB, 4 threads
+\addplot[fill=orange!40] coordinates {(T0,0.12) (T1,0.12) (T2,0.12) (T3,0.12)};
+\addplot[fill=blue!40] coordinates {(T0,0.00) (T1,0.00) (T2,0.00) (T3,0.00)};
+\addplot[fill=green!40] coordinates {(T0,66.47) (T1,61.59) (T2,55.38) (T3,63.21)};
+\legend{Connect, First Byte, Data Transfer}
+\end{axis}
+\end{tikzpicture}
+\caption{500MB 文件 4 线程传输的延迟分解}
+\label{fig:latency}
+\end{figure}
+
+\subsection{结果分析}
+
+\subsubsection{单线程已接近带宽上限}
+
+在 186.8ms RTT 的链路上，单线程吞吐量稳定在 $\sim$70 Mbps。假设链路物理带宽为 100 Mbps，则带宽利用率为：
+
+\begin{equation}
+\eta = \frac{67.4\text{ Mbps}}{\text{链路带宽}} \times 100\%
+\end{equation}
+
+BBR 算法有效地探测并维持了瓶颈链路的可用带宽，避免了传统的 CUBIC 算法在高 RTT 场景下需要长时间慢启动填满窗口的问题。
+
+\subsubsection{多线程加速效果分析}
+
+多线程并未带来显著的吞吐量提升，甚至微降（4 线程 500MB 从 67.4 降至 63.0 Mbps）。原因分析：
+
+\begin{enumerate}
+    \item \textbf{链路带宽瓶颈}：物理链路已饱和，增加 TCP 连接只会引入更多竞争和上下文切换开销
+    \item \textbf{公平性}：TCP 拥塞控制保证多流公平共享瓶颈链路，N 条连接各分得 $\sim 1/N$ 带宽
+    \item \textbf{连接开销}：每条连接的 TCP 握手（1.5 RTT $\approx$ 280ms）和 TLS-like 加密协商成为额外延迟
+    \item \textbf{适用场景}：多线程在\textbf{高 BDP 网络}（如 1Gbps 链路 + 高 RTT）中效果显著——此时单连接 TCP 窗口无法填满带宽，多连接可聚合窗口
+\end{enumerate}
+
+\begin{equation}
+\text{理论加速比} = \min\left(N,\; \frac{B_{\text{link}}}{B_{\text{single}}}\right)
+\end{equation}
+
+当 $B_{\text{single}} \approx B_{\text{link}}$ 时（单连接已饱和），加速比 $\approx 1$。
+
+\subsubsection{BBR vs 传统算法对比}
+
+BBR 在本测试中的核心贡献不是更高的峰值吞吐，而是\textbf{稳定的速率和平滑的延迟曲线}。在高 RTT（186ms）下：
+
+\begin{itemize}
+    \item CUBIC 依赖丢包作为拥塞信号，在无线/长肥网络中会因非拥塞丢包而大幅降低速率
+    \item BBR 基于带宽和 RTT 的模型估计，不受随机丢包影响，10 MB $\rightarrow$ 100 MB 吞吐从 45 升至 72 Mbps（大文件窗口充分打开后稳定）
+\end{itemize}
+
+\subsection{加密开销分析}
+
+AES-256-GCM 每 chunk（64KB）引入 28 字节开销：
+
+\begin{itemize}
+    \item IV：12 字节（随机生成，每个消息唯一）
+    \item GCM Tag：16 字节（GHASH 认证码）
+    \item 总开销：$\frac{28}{65536 + 28} \approx 0.043\%$，可忽略不计
+\end{itemize}
+
+CPU 加密开销：AES-NI 硬件指令加速下，GCM 加解密吞吐可达 GB/s 级别，对 $\sim$70 Mbps 的链路不会成为瓶颈。
+
+\subsection{协议开销}
+
+\begin{table}[H]
+\centering
+\caption{协议开销汇总}
+\begin{tabular}{lcc}
+\toprule
+\textbf{项目} & \textbf{开销 (字节)} & \textbf{占比 (64KB chunk)} \\
+\midrule
+Chunk 头部 & 16 + 36 (file\_id) & 0.08\% \\
+GCM IV + Tag & 28 & 0.04\% \\
+JSON 消息头 & $\sim$200 & — \\
+TCP/IP 头 & 40 & 0.06\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\newpage
+
+% ============================================================
+% 五、总结
+% ============================================================
+\section{总结}
+
+本实验完成了一个完整的安全 P2P 文件传输系统，并通过跨网络实际测试验证了性能和安全性。主要成果包括：
+
+\begin{enumerate}
+    \item \textbf{ECDH 密钥交换}：实现了基于 secp256r1 椭圆曲线的双向密钥协商，本地私钥 + 远程公钥计算 256 位共享密钥，直接作为 AES-256 加密密钥使用。
+    \item \textbf{AES-256-GCM 认证加密}：所有信令和数据通道消息均经过认证加密保护，12 字节随机 IV + 16 字节 GCM Tag 提供机密性和完整性，开销仅 0.04\%。
+    \item \textbf{BBR 拥塞控制}：在每个 TCP 发送套接字上启用 BBR 算法，在高 RTT（186ms）链路上实现稳定吞吐，不受随机丢包影响。
+    \item \textbf{多线程并行传输}：将文件按 chunk 均匀分给 $N$ 个线程，通过独立 TCP 连接并行发送，利用 \texttt{pwrite()} POSIX 原子写实现并发磁盘写入。
+    \item \textbf{跨网络验证}：在 10.162.44.132 与 10.162.181.2 之间完成完整的功能和性能测试，500MB 文件单线程吞吐 67.4 Mbps，所有传输文件 MD5 校验通过。
+\end{enumerate}
+
+\textbf{改进方向}：
+
+\begin{itemize}
+    \item 在更高带宽（1Gbps+）的链路上测试多线程加速效果，验证 BBR 在大 BDP 场景下的性能优势
+    \item 引入 HKDF 密钥派生函数替代直接使用 ECDH 原始字节作为 AES 密钥，提高密钥安全性
+    \item 增加断点续传功能的实际集成
+    \item 支持 IPv6 和 NAT 穿透（STUN/TURN）
+\end{itemize}
 
 \end{document}

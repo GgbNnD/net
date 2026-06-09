@@ -18,97 +18,106 @@
 \HyPL@Entry{0<</S/D>>}
 \HyPL@Entry{1<</S/D>>}
 \@writefile{toc}{\contentsline {section}{摘要}{1}{figure.caption.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {\nobreakspace  {}\CJKnumber  {1}、}项目概述}{4}{section.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {1.1}项目背景与目标}{4}{subsection.1.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {1.2}技术栈}{4}{subsection.1.2}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces 项目技术栈\relax }}{4}{table.caption.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {\nobreakspace  {}\CJKnumber  {1}、}项目内容}{4}{section.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.1}系统架构}{4}{subsection.1.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces 系统模块架构与端口分配\relax }}{4}{figure.caption.3}\protected@file@percent }
 \providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
-\newlabel{tab:techstack}{{1}{4}{项目技术栈\relax }{table.caption.3}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {1.3}系统架构}{5}{subsection.1.3}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces 系统四层架构图\relax }}{5}{figure.caption.4}\protected@file@percent }
-\newlabel{fig:architecture}{{1}{5}{系统四层架构图\relax }{figure.caption.4}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {1.4}线程模型}{5}{subsection.1.4}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces 线程模型一览\relax }}{6}{table.caption.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {1.5}端口分配与协议栈}{6}{subsection.1.5}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces 端口分配与协议\relax }}{6}{table.caption.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {\nobreakspace  {}\CJKnumber  {2}、}算法原理}{8}{section.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}滑动窗口协议}{8}{subsection.2.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.1.1}协议参数}{8}{subsubsection.2.1.1}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces 滑动窗口参数\relax }}{8}{table.caption.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.1.2}发送方算法}{8}{subsubsection.2.1.2}\protected@file@percent }
-\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces 滑动窗口发送算法\relax }}{9}{algorithm.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.1.3}接收方算法}{9}{subsubsection.2.1.3}\protected@file@percent }
-\@writefile{loa}{\contentsline {algorithm}{\numberline {2}{\ignorespaces 滑动窗口接收算法\relax }}{10}{algorithm.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.1.4}吞吐量分析}{10}{subsubsection.2.1.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}MD5 哈希算法（RFC 1321）}{10}{subsection.2.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.1}算法结构}{11}{subsubsection.2.2.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.2}碰撞概率分析}{12}{subsubsection.2.2.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}ECDH 密钥交换（secp256r1）}{12}{subsection.2.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.1}数学原理}{12}{subsubsection.2.3.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.2}在本系统中的应用}{13}{subsubsection.2.3.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}MAC 报文鉴别码}{13}{subsection.2.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.5}zlib 透明压缩}{14}{subsection.2.5}\protected@file@percent }
+\newlabel{fig:arch}{{1}{4}{系统模块架构与端口分配\relax }{figure.caption.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.2}协议分层}{4}{subsection.1.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces 协议消息类型一览\relax }}{5}{table.caption.4}\protected@file@percent }
+\newlabel{tab:msgs}{{1}{5}{协议消息类型一览\relax }{table.caption.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.3}UDP 组播设备发现}{5}{subsection.1.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {1.3.1}组播原理与 IGMP}{5}{subsubsection.1.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {1.3.2}设备发现流程}{6}{subsubsection.1.3.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces UDP 组播设备发现流程\relax }}{6}{figure.caption.5}\protected@file@percent }
+\newlabel{fig:discovery}{{2}{6}{UDP 组播设备发现流程\relax }{figure.caption.5}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {1.3.3}本机 IP 探测（UDP Connect Trick）}{6}{subsubsection.1.3.3}\protected@file@percent }
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {1}本机IP探测 (device\_discovery.cpp)}{7}{lstlisting.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {1.3.4}组播发送与接收}{7}{subsubsection.1.3.4}\protected@file@percent }
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {2}组播发送循环 (send\_loop)}{7}{lstlisting.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {1.3.5}跨子网与 WiFi 隔离注意事项}{8}{subsubsection.1.3.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {\nobreakspace  {}\CJKnumber  {2}、}算法原理}{9}{section.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}ECDH 密钥交换算法}{9}{subsection.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.1.1}椭圆曲线数学基础}{9}{subsubsection.2.1.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.1.2}标量乘法}{9}{subsubsection.2.1.2}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces 标量乘法（Double-and-Add）\relax }}{9}{algorithm.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.1.3}ECDH 密钥协商过程}{10}{subsubsection.2.1.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}AES-256-GCM 认证加密}{10}{subsection.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.1}GCM 模式概述}{10}{subsubsection.2.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.2}GHASH 多项式哈希}{11}{subsubsection.2.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.3}GCM 认证标签生成}{11}{subsubsection.2.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.4}本系统的 GCM 实现方案}{11}{subsubsection.2.2.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}BBR 拥塞控制算法}{12}{subsection.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.1}BBR 基本原理}{12}{subsubsection.2.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.2}BBR 状态机}{12}{subsubsection.2.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.3}与传统算法的比较}{13}{subsubsection.2.3.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces BBR vs 传统算法对比\relax }}{13}{table.caption.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}多线程并行传输}{13}{subsection.2.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.1}设计动机}{13}{subsubsection.2.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.2}分块策略}{13}{subsubsection.2.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.3}并发写磁盘}{14}{subsubsection.2.4.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {\nobreakspace  {}\CJKnumber  {3}、}算法实现}{15}{section.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}分片数据结构}{15}{subsection.3.1}\protected@file@percent }
-\newlabel{lst:chunk}{{1}{15}{分片数据结构 (src/transfer/chunk.h)}{lstlisting.1}{}}
-\@writefile{lol}{\contentsline {lstlisting}{\numberline {1}分片数据结构 (src/transfer/chunk.h)}{15}{lstlisting.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}MD5 算法实现}{17}{subsection.3.2}\protected@file@percent }
-\newlabel{lst:md5}{{2}{17}{MD5 核心变换函数 (src/common/utils.cpp)}{lstlisting.2}{}}
-\@writefile{lol}{\contentsline {lstlisting}{\numberline {2}MD5 核心变换函数 (src/common/utils.cpp)}{17}{lstlisting.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}滑动窗口发送实现}{20}{subsection.3.3}\protected@file@percent }
-\newlabel{lst:slidingwindow}{{3}{20}{滑动窗口发送核心逻辑 (src/transfer/transfer\_sender.cpp)}{lstlisting.3}{}}
-\@writefile{lol}{\contentsline {lstlisting}{\numberline {3}滑动窗口发送核心逻辑 (src/transfer/transfer\_sender.cpp)}{20}{lstlisting.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}分片文件 I/O（支持断点续传）}{22}{subsection.3.4}\protected@file@percent }
-\newlabel{lst:fileio}{{4}{22}{FileChunkIO 分片读写 (src/transfer/file\_io.cpp)}{lstlisting.4}{}}
-\@writefile{lol}{\contentsline {lstlisting}{\numberline {4}FileChunkIO 分片读写 (src/transfer/file\_io.cpp)}{22}{lstlisting.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}非阻塞 TCP 连接（带超时）}{24}{subsection.3.5}\protected@file@percent }
-\newlabel{lst:nonblockconnect}{{5}{24}{非阻塞 connect + select 超时 (src/signaling/signaling\_client.cpp)}{lstlisting.5}{}}
-\@writefile{lol}{\contentsline {lstlisting}{\numberline {5}非阻塞 connect + select 超时 (src/signaling/signaling\_client.cpp)}{24}{lstlisting.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.6}UDP 组播设备发现}{26}{subsection.3.6}\protected@file@percent }
-\newlabel{lst:multicast}{{6}{26}{UDP 组播 Socket 创建 (src/discovery/device\_discovery.cpp)}{lstlisting.6}{}}
-\@writefile{lol}{\contentsline {lstlisting}{\numberline {6}UDP 组播 Socket 创建 (src/discovery/device\_discovery.cpp)}{26}{lstlisting.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.7}MAC 报文鉴别码实现}{27}{subsection.3.7}\protected@file@percent }
-\newlabel{lst:mac}{{7}{27}{MAC 签名与验证 (src/common/protocol.cpp)}{lstlisting.7}{}}
-\@writefile{lol}{\contentsline {lstlisting}{\numberline {7}MAC 签名与验证 (src/common/protocol.cpp)}{27}{lstlisting.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.8}ECDH 密钥交换实现}{29}{subsection.3.8}\protected@file@percent }
-\newlabel{lst:ecdh}{{8}{29}{ECDH 密钥对生成与共享密钥计算 (src/common/utils.cpp)}{lstlisting.8}{}}
-\@writefile{lol}{\contentsline {lstlisting}{\numberline {8}ECDH 密钥对生成与共享密钥计算 (src/common/utils.cpp)}{29}{lstlisting.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {\nobreakspace  {}\CJKnumber  {4}、}项目结果}{31}{section.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}功能验证}{31}{subsection.4.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.1.1}单元测试}{31}{subsubsection.4.1.1}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces 单元测试阶段与覆盖范围\relax }}{31}{table.caption.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.1.2}系统服务启动}{31}{subsubsection.4.1.2}\protected@file@percent }
-\@writefile{lol}{\contentsline {lstlisting}{\numberline {9}系统启动输出}{31}{lstlisting.9}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Web 界面展示}{32}{subsection.4.2}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Web 界面布局示意图\relax }}{32}{figure.caption.9}\protected@file@percent }
-\newlabel{fig:webui}{{2}{32}{Web 界面布局示意图\relax }{figure.caption.9}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}文件传输性能测试}{33}{subsection.4.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.3.1}测试环境}{33}{subsubsection.4.3.1}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces 测试环境配置\relax }}{33}{table.caption.10}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.3.2}不同文件大小的传输性能}{33}{subsubsection.4.3.2}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces 文件传输性能测试结果\relax }}{33}{table.caption.11}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces 不同文件大小的传输速度对比\relax }}{34}{figure.caption.12}\protected@file@percent }
-\newlabel{fig:speed}{{3}{34}{不同文件大小的传输速度对比\relax }{figure.caption.12}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.3.3}不同窗口大小的性能对比}{34}{subsubsection.4.3.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {8}{\ignorespaces 不同窗口大小的传输性能（100 MB 文件）\relax }}{34}{table.caption.13}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces 不同窗口大小的传输速度对比\relax }}{35}{figure.caption.14}\protected@file@percent }
-\newlabel{fig:windowsize}{{4}{35}{不同窗口大小的传输速度对比\relax }{figure.caption.14}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.3.4}zlib 压缩效果测试}{35}{subsubsection.4.3.4}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {9}{\ignorespaces zlib 压缩效果\relax }}{35}{table.caption.15}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}设备发现性能}{36}{subsection.4.4}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {10}{\ignorespaces 设备发现性能指标\relax }}{36}{table.caption.16}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.5}安全性验证}{36}{subsection.4.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.6}已知限制与改进方向}{36}{subsection.4.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {\nobreakspace  {}\CJKnumber  {5}、}总结}{38}{section.5}\protected@file@percent }
-\bibcite{rfc1321}{1}
-\bibcite{rfc768}{2}
-\bibcite{rfc793}{3}
-\bibcite{tcpip}{4}
-\bibcite{nist}{5}
-\bibcite{ecdh}{6}
-\bibcite{zlib}{7}
-\bibcite{json}{8}
-\bibcite{nlohmann}{9}
-\bibcite{openssl}{10}
-\@writefile{toc}{\contentsline {section}{参考文献}{39}{Item.27}\protected@file@percent }
-\gdef \@abspage@last{40}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}ECDH 密钥对的生成与交换}{15}{subsection.3.1}\protected@file@percent }
+\newlabel{lst:ecdh-gen}{{3}{15}{ECDH 密钥对生成 (utils.cpp)}{lstlisting.3}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {3}ECDH 密钥对生成 (utils.cpp)}{15}{lstlisting.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}ECDH 共享密钥计算}{16}{subsection.3.2}\protected@file@percent }
+\newlabel{lst:ecdh-compute}{{4}{16}{ECDH 共享密钥推导 (utils.cpp)}{lstlisting.4}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {4}ECDH 共享密钥推导 (utils.cpp)}{16}{lstlisting.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}AES-256-GCM 加密与解密}{17}{subsection.3.3}\protected@file@percent }
+\newlabel{lst:aes-enc}{{5}{17}{AES-256-GCM 加密 (utils.cpp)}{lstlisting.5}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {5}AES-256-GCM 加密 (utils.cpp)}{17}{lstlisting.5}\protected@file@percent }
+\newlabel{lst:aes-dec}{{6}{18}{AES-256-GCM 解密与 Tag 验证 (utils.cpp)}{lstlisting.6}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {6}AES-256-GCM 解密与 Tag 验证 (utils.cpp)}{18}{lstlisting.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}BBR 拥塞控制启用}{19}{subsection.3.4}\protected@file@percent }
+\newlabel{lst:bbr}{{7}{19}{BBR 拥塞控制设置 (platform.cpp)}{lstlisting.7}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {7}BBR 拥塞控制设置 (platform.cpp)}{19}{lstlisting.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}多线程并行发送实现}{19}{subsection.3.5}\protected@file@percent }
+\newlabel{lst:multi}{{8}{19}{多线程并行发送主流程 (transfer\_sender.cpp)}{lstlisting.8}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {8}多线程并行发送主流程 (transfer\_sender.cpp)}{19}{lstlisting.8}\protected@file@percent }
+\newlabel{lst:range}{{9}{20}{单线程发送范围 (transfer\_sender.cpp)}{lstlisting.9}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {9}单线程发送范围 (transfer\_sender.cpp)}{20}{lstlisting.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.6}数据通道的加密线格式}{21}{subsection.3.6}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces 数据通道加密线格式\relax }}{21}{figure.caption.7}\protected@file@percent }
+\newlabel{fig:wire}{{3}{21}{数据通道加密线格式\relax }{figure.caption.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.7}TCP 信令通信流程}{21}{subsection.3.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.7.1}短连接模式与状态机}{21}{subsubsection.3.7.1}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {2}{\ignorespaces SignalingServer 消息分发\relax }}{22}{algorithm.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.7.2}信令通信时序}{23}{subsubsection.3.7.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces 信令通道短连接请求-响应流程（以 FILE\_REQUEST 为例）\relax }}{23}{figure.caption.8}\protected@file@percent }
+\newlabel{fig:signaling}{{4}{23}{信令通道短连接请求-响应流程（以 FILE\_REQUEST 为例）\relax }{figure.caption.8}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.7.3}非阻塞连接与超时}{23}{subsubsection.3.7.3}\protected@file@percent }
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {10}非阻塞 connect + select 超时 (signaling\_client.cpp)}{24}{lstlisting.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.8}TCP 文件传输流程}{24}{subsection.3.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.8.1}传输数据通道概述}{24}{subsubsection.3.8.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces 信令通道 vs 数据通道\relax }}{25}{table.caption.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.8.2}数据传输时序（多线程模式）}{25}{subsubsection.3.8.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces 多线程并行传输时序图（4 线程, 1600 chunks, 每个线程 400 chunks）\relax }}{25}{figure.caption.10}\protected@file@percent }
+\newlabel{fig:transfer}{{5}{25}{多线程并行传输时序图（4 线程, 1600 chunks, 每个线程 400 chunks）\relax }{figure.caption.10}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.8.3}Chunk 分片二进制协议}{26}{subsubsection.3.8.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Chunk 二进制格式\relax }}{26}{table.caption.11}\protected@file@percent }
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {11}Chunk 序列化 (chunk.h)}{26}{lstlisting.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.8.4}接收端多连接并发写入}{27}{subsubsection.3.8.4}\protected@file@percent }
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {12}FileChunkIO 并发安全写入 (file\_io.cpp)}{27}{lstlisting.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {\nobreakspace  {}\CJKnumber  {4}、}项目结果}{28}{section.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}测试环境}{28}{subsection.4.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces 测试环境配置\relax }}{28}{table.caption.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}设备发现与信令测试}{28}{subsection.4.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces TEXT\_MESSAGE 延迟统计 (ms)\relax }}{28}{table.caption.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}文件传输性能测试}{29}{subsection.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.3.1}吞吐量对比}{29}{subsubsection.4.3.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces 跨设备文件传输吞吐量对比\relax }}{29}{table.caption.14}\protected@file@percent }
+\newlabel{tab:throughput}{{7}{29}{跨设备文件传输吞吐量对比\relax }{table.caption.14}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces 不同文件大小与线程数的吞吐量对比\relax }}{29}{figure.caption.15}\protected@file@percent }
+\newlabel{fig:throughput}{{6}{29}{不同文件大小与线程数的吞吐量对比\relax }{figure.caption.15}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.3.2}每线程延迟分解}{30}{subsubsection.4.3.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces 500MB 文件 4 线程传输的延迟分解\relax }}{30}{figure.caption.16}\protected@file@percent }
+\newlabel{fig:latency}{{7}{30}{500MB 文件 4 线程传输的延迟分解\relax }{figure.caption.16}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}结果分析}{30}{subsection.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.4.1}单线程已接近带宽上限}{30}{subsubsection.4.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.4.2}多线程加速效果分析}{30}{subsubsection.4.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.4.3}BBR vs 传统算法对比}{31}{subsubsection.4.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.5}加密开销分析}{31}{subsection.4.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.6}协议开销}{31}{subsection.4.6}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {8}{\ignorespaces 协议开销汇总\relax }}{31}{table.caption.17}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {\nobreakspace  {}\CJKnumber  {5}、}总结}{32}{section.5}\protected@file@percent }
+\gdef \@abspage@last{33}
