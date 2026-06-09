@@ -32,7 +32,6 @@ struct FileMeta {
     std::string file_id;        // 传输任务的唯一ID (UUID格式)
     std::string filename;       // 原始文件名 (含扩展名, 如 "论文.pdf")
     uint64_t    file_size;      // 文件总大小 (字节)
-    std::string checksum;       // 文件MD5校验值 (用于传输后完整性验证)
     uint32_t    chunk_size;     // 每个分片的大小 (字节, 默认 65536 = 64KB)
     uint32_t    total_chunks;   // 总分片数 = ceil(file_size / chunk_size)
     std::string compression;    // 压缩算法: "zlib" / "" (不压缩)
@@ -96,7 +95,8 @@ namespace Defaults {
     constexpr uint32_t    BROADCAST_INTERVAL = 3;    // 广播间隔 (秒)
     constexpr uint32_t    DEVICE_TIMEOUT   = 10;      // 设备超时时间 (秒)
     constexpr uint32_t    CHUNK_SIZE       = 65536;   // 默认分片大小 (64KB)
-    constexpr uint32_t    WINDOW_SIZE      = 16;      // 滑动窗口大小 (可同时发送多少个未确认分片)
+    constexpr uint32_t    NUM_THREADS      = 4;       // 并行传输线程数
+    constexpr uint32_t    WINDOW_SIZE      = 16;      // 滑动窗口大小 (BBR模式下备用)
     constexpr uint32_t    ACK_TIMEOUT_MS   = 3000;    // ACK超时重传时间 (毫秒)
     constexpr const char* MULTICAST_ADDR   = "239.255.255.250";  // 组播地址
 }

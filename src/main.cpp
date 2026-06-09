@@ -430,7 +430,7 @@ void run_phase4_tests() {
 
         std::atomic<int> progress_count(0);
         bool send_ok = sender.send_file("127.0.0.1", test_port, src_file, file_id,
-                                        4,  // window_size
+                                        1,  // num_threads
                                         [&](const TransferProgress& /*p*/) {
             ++progress_count;
         });
@@ -938,7 +938,7 @@ bool init_http_service() {
                       << " -> " << captured_ip << ":" << captured_port << std::endl;
 
             bool ok = sender.send_file(captured_ip, captured_port, captured_path,
-                                       captured_file_id, Defaults::WINDOW_SIZE,
+                                       captured_file_id, Defaults::NUM_THREADS,
                 [=](const TransferProgress& progress) {
                     if (g_transfer_manager) {
                         g_transfer_manager->update_progress(captured_file_id, progress.sent_chunks, progress.bytes_sent, progress.speed);

@@ -123,4 +123,10 @@ bool set_reuse_addr(SOCKET_FD sock);
  */
 std::vector<std::string> get_local_ips();
 
+/**
+ * @brief 启用 BBR 拥塞控制算法
+ * @return 是否启用成功 (内核不支持时返回 false)
+ */
+bool enable_bbr(SOCKET_FD sock);
+
 } // namespace NetworkUtils

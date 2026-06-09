@@ -190,4 +190,13 @@ std::vector<std::string> get_local_ips() {
     return ips;
 }
 
+bool enable_bbr(SOCKET_FD sock) {
+#ifdef __linux__
+    const char* cc = "bbr";
+    if (setsockopt(sock, IPPROTO_TCP, TCP_CONGESTION, cc, 3) == 0)
+        return true;
+#endif
+    return false;
+}
+
 } // namespace NetworkUtils

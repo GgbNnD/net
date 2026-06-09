@@ -65,6 +65,27 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ZLIB::ZLIB
 )
 
+add_executable(P2PBench
+    bench_main.cpp
+    src/transfer/transfer_sender.cpp
+    src/transfer/transfer_receiver.cpp
+    src/transfer/file_io.cpp
+    src/transfer/transfer_manager.cpp
+    src/common/protocol.cpp
+    src/common/utils.cpp
+    src/common/platform.cpp
+    src/common/peer_key.cpp
+)
+target_include_directories(P2PBench PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/lib
+)
+target_link_libraries(P2PBench PRIVATE
+    ${PLATFORM_LIBS}
+    OpenSSL::SSL OpenSSL::Crypto
+    ZLIB::ZLIB
+)
+
 # ----------------------------------------------------------
 # 编译器警告选项
 # ----------------------------------------------------------
