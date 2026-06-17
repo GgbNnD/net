@@ -112,7 +112,6 @@
     \vspace{-0.1cm}
     \begin{center}
         \Huge{\textbf{局域网 P2P 文件传输系统}}\\[0.35cm]
-        \Large{——基于 BBR 拥塞控制与 AES-256-GCM 加密的安全传输}\\[0.5cm]
     \end{center}
     \vspace*{0.9cm}
     \begin{center}
@@ -121,7 +120,7 @@
                 姓\hspace{12pt}名 & \underline{\makebox[220pt]{\kaishu 黄鹤翔}}             \\
                 学\hspace{12pt}号 & \underline{\makebox[220pt]{3230106231}}                 \\
                 院\hspace{12pt}系 & \underline{\makebox[220pt]{\kaishu 信息与电子工程学院}} \\
-                指导老师          & \underline{\makebox[220pt]{\kaishu 杜歆}}               \\
+                指导老师          & \underline{\makebox[220pt]{\kaishu 王勇}}               \\
             \end{tabular}
         }
     \end{center}
@@ -135,6 +134,11 @@
 \setcounter{page}{1}
 
 % ========================= 摘要 =========================
+
+\newpage
+\tableofcontents
+\newpage
+
 \section*{摘\quad 要}
 \addcontentsline{toc}{section}{摘要}
 
@@ -144,10 +148,6 @@
 
 \vspace{1em}
 \noindent\textbf{关键词：}P2P 文件传输；ECDH 密钥交换；AES-256-GCM；BBR 拥塞控制；多线程并行传输
-
-\newpage
-\tableofcontents
-\newpage
 
 % ============================================================
 % 一、项目内容
@@ -237,24 +237,46 @@ UDP 组播（Multicast）是局域网设备发现的理想机制：一台设备�
 
 \begin{figure}[H]
 \centering
-\begin{tikzpicture}[node distance=2.5cm, auto,
-    block/.style={rectangle, draw, fill=blue!10, text width=2.8cm, align=center, minimum height=0.8cm, rounded corners},
-    line/.style={draw, -stealth, thick}]
-    \node[block] (A) at (0,0) {设备 A\\上线};
-    \node[block] (B) at (5,0) {设备 B\\在线};
-    
-    \node[block, fill=green!10] (sockA) at (0,-2) {create\_socket\\加入组播组\\bind :8888};
-    \node[block, fill=green!10] (sockB) at (5,-2) {create\_socket\\加入组播组\\bind :8888};
-    
-    \node[block, fill=yellow!10] (sendA) at (0,-4) {send\_loop\\每3秒发送\\DEVICE\_BROADCAST};
-    \node[block, fill=yellow!10] (recvB) at (5,-4) {recv\_loop\\recvfrom 阻塞\\接收组播包};
-    
-    \path[line] (A) -- (sockA);
-    \path[line] (B) -- (sockB);
-    \path[line] (sockA) -- (sendA);
-    \path[line] (sockB) -- (recvB);
-    \path[line,<->,dashed] (sendA) -- node[above,align=center] {UDP 组播\\239.255.255.250:8888} (recvB);
-    \path[line] (recvB) -- node[right,align=center] {解析 JSON\\回调 on\_device\_found} (5,-5);
+\begin{tikzpicture}[
+    font=\footnotesize,
+    stage/.style={rectangle, rounded corners=6pt, draw=deepblue, thick, align=center, text width=3.8cm, minimum height=0.9cm, fill=blue!6},
+    io/.style={stage, fill=green!8, draw=green!45!black},
+    loop/.style={stage, fill=yellow!12, draw=orange!70!black},
+    store/.style={stage, fill=orange!10, draw=orange!80!black},
+    flow/.style={-stealth, thick, deepblue},
+    cast/.style={-stealth, thick, dashed, orange!85!black},
+    lane/.style={rounded corners=10pt, draw=linegray, fill=lightgray!25}
+]
+    % 左列（设备A）
+    \node[stage, fill=blue!12] (A) at (0,0) {设备 A\\上线};
+    \node[io] (sockA) at (0,-2.4) {create\_socket\\加入组播组\\bind :8888};
+    \node[loop] (sendA) at (0,-4.8) {send\_loop\\每 3 秒发送\\DEVICE\_BROADCAST};
+
+    % 右列（设备B）
+    \node[stage, fill=blue!12] (B) at (7.2,0) {设备 B\\在线};
+    \node[io] (sockB) at (7.2,-2.4) {create\_socket\\加入组播组\\bind :8888};
+    \node[loop] (recvB) at (7.2,-4.8) {recv\_loop\\recvfrom 阻塞\\接收组播包};
+    \node[store] (parseB) at (7.2,-7.2) {解析 JSON\\过滤自身\\回调 on\_device\_found};
+    \node[store] (mgrB) at (7.2,-9.6) {DeviceManager\\update\_device\\刷新在线状态};
+
+    % 背景泳道
+    \begin{scope}[on background layer]
+        \node[lane, fit=(A)(sockA)(sendA), inner xsep=0.6cm, inner ysep=0.6cm] (laneA) {};
+        \node[lane, fit=(B)(sockB)(recvB)(parseB)(mgrB), inner xsep=0.6cm, inner ysep=0.6cm] (laneB) {};
+    \end{scope}
+
+    % 连接线
+    \draw[flow] (A) -- (sockA);
+    \draw[flow] (B) -- (sockB);
+    \draw[flow] (sockA) -- (sendA);
+    \draw[flow] (sockB) -- (recvB);
+
+    % 组播箭头（带标签）
+    \draw[cast] (sendA.east) -- node[above, align=center, fill=white, inner sep=4pt, rounded corners=3pt] {UDP 组播\\239.255.255.250:8888} (recvB.west);
+
+    % 右列内部流程
+    \draw[flow] (recvB) -- (parseB);
+    \draw[flow] (parseB) -- (mgrB);
 \end{tikzpicture}
 \caption{UDP 组播设备发现流程}
 \label{fig:discovery}
@@ -268,7 +290,7 @@ UDP 组播（Multicast）是局域网设备发现的理想机制：一台设备�
     \item \textbf{加入组播组}：对所有非回环 IPv4 接口调用 \texttt{IP\_ADD\_MEMBERSHIP}，确保多网卡环境中任意接口的组播包均能接收
     \item \textbf{启动发送线程}：每 3 秒向组播地址发送 \texttt{DEVICE\_BROADCAST} JSON 消息，包含设备 ID、名称、IP、信令端口（8889）
     \item \textbf{启动接收线程}：\texttt{recvfrom()} 阻塞等待组播数据，收到后解析 JSON，过滤自身，触发 \texttt{on\_device\_found} 回调更新设备管理器
-    \item \textbf{优雅退出}：\texttt{stop()} 时先发送 3 次 \texttt{DEVICE\_OFFLINE} 通知，再关闭 socket 唤醒阻塞的 \texttt{recvfrom()}，join 线程
+    \item \textbf{退出}：\texttt{stop()} 时先发送 3 次 \texttt{DEVICE\_OFFLINE} 通知，再关闭 socket 唤醒阻塞的 \texttt{recvfrom()}，join 线程
 \end{enumerate}
 
 \subsubsection{本机 IP 探测（UDP Connect Trick）}
@@ -385,6 +407,10 @@ b &= \text{0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B} \
 \end{algorithmic}
 \end{algorithm}
 
+\begin{center}
+    \includegraphics[width = 0.8\textwidth]{ecdh2.jpeg}
+\end{center}
+
 \subsubsection{ECDH 密钥协商过程}
 
 两方 Alice (A) 和 Bob (B) 通过以下步骤得到共享密钥：
@@ -407,7 +433,31 @@ a \cdot B_{\text{pub}} = a \cdot (b \cdot G) = (a \cdot b) \cdot G = (b \cdot a)
 
 P-256 曲线的安全强度为 128 位（与 AES-128 暴力破解难度相当），ECDH 产生的原始共享密钥为 256 位（32 字节），直接作为 AES-256 的密钥使用。
 
+\begin{center}
+    \includegraphics[width = 0.8\textwidth]{ecdh1.jpeg}
+\end{center}
 \subsection{AES-256-GCM 认证加密}
+
+\subsubsection{AES 加密算法概述}
+
+高级加密标准（AES）是一种对称分组密码算法，由 NIST 于 2001 年标准化，替代原有的 DES。AES 采用	extbf{代换-置换网络}（SPN）结构，以 128 位（16 字节）为分组长度，支持 128/192/256 位三种密钥长度。本系统使用 	extbf{AES-256}，即密钥长度为 256 位（32 字节），对应 14 轮迭代加密。
+
+AES 的每一轮包含四个基本操作（最后一轮省略 MixColumns）：
+\begin{enumerate}
+    \item \textbf{SubBytes}：通过 8 位 S-盒对每个字节进行非线性代换，提供混淆（Confusion）
+    \item \textbf{ShiftRows}：对状态矩阵的每一行进行循环左移，第 $i$ 行左移 $i$ 个字节
+    \item \textbf{MixColumns}：在 $\text{GF}(2^8)$ 上对每列进行线性变换，提供扩散（Diffusion）
+    \item \textbf{AddRoundKey}：将轮密钥与状态矩阵进行按位异或
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{aes1.jpeg}
+\caption{AES 加密流程}
+\label{fig:aes}
+\end{figure}
+
+AES 的安全性基于 SPN 结构中混淆与扩散的平衡设计。256 位密钥空间为 $2^{256}$，暴力破解在计算上不可行。现代 CPU 通过 AES-NI 指令集提供硬件级加速，AES-256-GCM 加解密吞吐可达数 GB/s。
 
 \subsubsection{GCM 模式概述}
 
@@ -467,6 +517,10 @@ GHASH 输入依次为：
     \item \textbf{AAD}：当前为空（仅加密数据通过 GHASH）
     \item \textbf{开销}：每消息额外开销 $12 + 16 = 28$ 字节
 \end{itemize}
+
+\begin{center}
+    \includegraphics[width = 0.8\textwidth]{aes2.jpeg}
+\end{center}
 
 \subsection{BBR 拥塞控制算法}
 
@@ -972,42 +1026,62 @@ SOCKET_FD SignalingClient::connect_to(target_ip, target_port, timeout_ms) {
 
 \begin{figure}[H]
 \centering
-\begin{tikzpicture}[node distance=1.2cm, auto,
-    block/.style={rectangle, draw, minimum width=3cm, minimum height=0.6cm, align=center, font=\small, rounded corners},
-    arrow/.style={draw, -stealth, thick, font=\small}]
+\begin{tikzpicture}[
+    font=\small,
+    main/.style={rectangle, rounded corners=6pt, draw=deepblue, thick, align=center, minimum width=3.8cm, minimum height=1.0cm, fill=blue!9},
+    worker/.style={rectangle, rounded corners=6pt, draw=blue!60!black, thick, align=center, text width=3.0cm, minimum height=0.9cm, fill=blue!4},
+    handler/.style={rectangle, rounded corners=6pt, draw=green!45!black, thick, align=center, text width=3.2cm, minimum height=0.9cm, fill=green!7},
+    state/.style={rectangle, rounded corners=8pt, draw=orange!80!black, thick, align=center, text width=5.5cm, minimum height=1.4cm, fill=orange!10},
+    flow/.style={-stealth, thick, deepblue},
+    net/.style={-stealth, thick, dashed, orange!85!black},
+    lane/.style={rounded corners=10pt, draw=linegray, fill=lightgray!22}
+]
+    % 左侧发送端
+    \node[main] (sender) at (0,0) {TransferSender\\主线程划分 chunk 范围};
+    \node[worker] (t0) at (0,-2.4) {Thread-0\\chunks 0--400};
+    \node[worker] (t1) at (0,-4.2) {Thread-1\\chunks 400--800};
+    \node[worker] (t2) at (0,-6.0) {Thread-2\\chunks 800--1200};
+    \node[worker] (t3) at (0,-7.8) {Thread-3\\chunks 1200--1600};
 
-    \node[block,fill=blue!10] (sender) at (0,0) {TransferSender (main)};
-    \node[block,fill=blue!5] (t0) at (0,-1.5) {Thread-0\\[chunks 0-400)};
-    \node[block,fill=blue!5] (t1) at (0,-3) {Thread-1\\[chunks 400-800)};
-    \node[block,fill=blue!5] (t2) at (0,-4.5) {Thread-2\\[chunks 800-1200)};
-    \node[block,fill=blue!5] (t3) at (0,-6) {Thread-3\\[chunks 1200-1600)};
-    
-    \node[block,fill=green!10] (recv) at (6,-1.5) {TransferReceiver};
-    \node[block,fill=green!5] (h0) at (6,-3) {handle\_receive\\处理连接-0};
-    \node[block,fill=green!5] (h1) at (6,-4.5) {handle\_receive\\处理连接-1};
-    \node[block,fill=green!5] (h2) at (6,-6) {handle\_receive\\处理连接-2};
-    \node[block,fill=green!5] (h3) at (6,-7.5) {handle\_receive\\处理连接-3};
+    % 右侧接收端
+    \node[main, fill=green!10, draw=green!45!black] (recv) at (9.0,0) {TransferReceiver\\监听 :8890};
+    \node[handler] (h0) at (9.0,-2.4) {handle\_receive\\处理连接 0};
+    \node[handler] (h1) at (9.0,-4.2) {handle\_receive\\处理连接 1};
+    \node[handler] (h2) at (9.0,-6.0) {handle\_receive\\处理连接 2};
+    \node[handler] (h3) at (9.0,-7.8) {handle\_receive\\处理连接 3};
 
-    \draw[arrow] (sender) -- (t0);
-    \draw[arrow] (sender) -- (t1);
-    \draw[arrow] (sender) -- (t2);
-    \draw[arrow] (sender) -- (t3);
-    
-    \draw[arrow,dashed] (t0) -- node[above,text width=3.5cm,align=center] {TCP connect\\FILE\_RANGE hdr\\chunks ...\\RANGE\_DONE} (recv);
-    \draw[arrow,dashed] (t1) -- ++(3,0) |- (recv);
-    \draw[arrow,dashed] (t2) -- ++(3,0) |- (recv);
-    \draw[arrow,dashed] (t3) -- ++(3,0) |- (recv);
-    
-    \draw[arrow] (recv) -- (h0);
-    \draw[arrow] (recv) -- (h1);
-    \draw[arrow] (recv) -- (h2);
-    \draw[arrow] (recv) -- (h3);
-    
-    \node[block,fill=orange!10,text width=5cm] (note) at (3,-9) {InboundTransfer\\file\_id → bitmap\\total\_connections=4\\finished\_connections 计数\\全部完成 → commit + verify};
-    \draw[arrow] (h0) -- (note);
-    \draw[arrow] (h1) -- (note);
-    \draw[arrow] (h2) -- (note);
-    \draw[arrow] (h3) -- (note);
+    % 底部状态节点
+    \node[state] (state) at (4.5,-10.5) {InboundTransfer\\file\_id → bitmap \quad finished\_connections 计数\\全部完成 → commit + verify};
+
+    % 背景泳道
+    \begin{scope}[on background layer]
+        \node[lane, fit=(sender)(t0)(t1)(t2)(t3), inner xsep=0.6cm, inner ysep=0.6cm] {};
+        \node[lane, fit=(recv)(h0)(h1)(h2)(h3), inner xsep=0.6cm, inner ysep=0.6cm] {};
+    \end{scope}
+
+    % 左侧：主线程到工作线程
+    % \draw[flow] (sender) -- (t0);
+    % \draw[flow] (sender) -- (t1);
+    % \draw[flow] (sender) -- (t2);
+    % \draw[flow] (sender) -- (t3);
+
+    % 中间：网络连接（标签换行避免重叠）
+    \draw[net] (t0.east) -- node[above, align=center, fill=white, inner sep=3pt, text width=2.8cm] {TCP 连接\\FILE\_RANGE + 分片\\RANGE\_DONE} (h0.west);
+    \draw[net] (t1.east) -- node[above, align=center, fill=white, inner sep=2pt] {独立 TCP 连接} (h1.west);
+    \draw[net] (t2.east) -- node[above, align=center, fill=white, inner sep=2pt] {独立 TCP 连接} (h2.west);
+    \draw[net] (t3.east) -- node[above, align=center, fill=white, inner sep=2pt] {独立 TCP 连接} (h3.west);
+
+    % 右侧：接收主线程到处理线程
+    % \draw[flow] (recv) -- (h0);
+    % \draw[flow] (recv) -- (h1);
+    % \draw[flow] (recv) -- (h2);
+    % \draw[flow] (recv) -- (h3);
+
+    % 底部：汇聚到状态节点
+    % \draw[flow] (h0) |- (state.east);
+    % \draw[flow] (h1) |- (state.east);
+    % \draw[flow] (h2) |- (state.east);
+    \draw[flow] (h3) |- (state.east);
 \end{tikzpicture}
 \caption{多线程并行传输时序图（4 线程, 1600 chunks, 每个线程 400 chunks）}
 \label{fig:transfer}
@@ -1097,9 +1171,9 @@ bool FileChunkIO::write_chunk(const Chunk& chunk) {
 \toprule
 \textbf{项目} & \textbf{发送端} & \textbf{接收端} \\
 \midrule
-主机名 & OMEN & hhx \\
+主机名 & cells & hhx \\
 IP 地址 & 10.162.44.132 & 10.162.181.2 \\
-操作系统 & Linux & Ubuntu Linux \\
+操作系统 & Ubuntu 22.04 & Ubuntu 24.04 \\
 编译环境 & GCC, C++17 & GCC, C++17 \\
 加密库 & OpenSSL 3.x & OpenSSL 3.x \\
 网络 RTT & — & 186.8 ms \\
@@ -1135,7 +1209,7 @@ IP 地址 & 10.162.44.132 & 10.162.181.2 \\
 
 \subsection{文件传输性能测试}
 
-\subsubsection{吞吐量对比}
+% \subsubsection{吞吐量对比}
 
 \begin{table}[H]
 \centering
@@ -1181,54 +1255,50 @@ IP 地址 & 10.162.44.132 & 10.162.181.2 \\
 \label{fig:throughput}
 \end{figure}
 
-\subsubsection{每线程延迟分解}
+% \subsubsection{每线程延迟分解}
 
-\begin{figure}[H]
-\centering
-\begin{tikzpicture}
-\begin{axis}[
-    ybar stacked,
-    width=0.85\textwidth,
-    height=6cm,
-    bar width=18pt,
-    ylabel={Time (ms)},
-    xlabel={Thread},
-    symbolic x coords={T0,T1,T2,T3},
-    xtick=data,
-    legend style={at={(0.5,1.05)},anchor=south,legend columns=3},
-    ymin=0
-]
-% 500MB, 4 threads
-\addplot[fill=orange!40] coordinates {(T0,0.12) (T1,0.12) (T2,0.12) (T3,0.12)};
-\addplot[fill=blue!40] coordinates {(T0,0.00) (T1,0.00) (T2,0.00) (T3,0.00)};
-\addplot[fill=green!40] coordinates {(T0,66.47) (T1,61.59) (T2,55.38) (T3,63.21)};
-\legend{Connect, First Byte, Data Transfer}
-\end{axis}
-\end{tikzpicture}
-\caption{500MB 文件 4 线程传输的延迟分解}
-\label{fig:latency}
-\end{figure}
+% \begin{figure}[H]
+% \centering
+% \begin{tikzpicture}
+% \begin{axis}[
+%     ybar stacked,
+%     width=0.85\textwidth,
+%     height=6cm,
+%     bar width=18pt,
+%     ylabel={Time (ms)},
+%     xlabel={Thread},
+%     symbolic x coords={T0,T1,T2,T3},
+%     xtick=data,
+%     legend style={at={(0.5,1.05)},anchor=south,legend columns=3},
+%     ymin=0
+% ]
+% % 500MB, 4 threads
+% \addplot[fill=orange!40] coordinates {(T0,0.12) (T1,0.12) (T2,0.12) (T3,0.12)};
+% \addplot[fill=blue!40] coordinates {(T0,0.00) (T1,0.00) (T2,0.00) (T3,0.00)};
+% \addplot[fill=green!40] coordinates {(T0,66.47) (T1,61.59) (T2,55.38) (T3,63.21)};
+% \legend{Connect, First Byte, Data Transfer}
+% \end{axis}
+% \end{tikzpicture}
+% \caption{500MB 文件 4 线程传输的延迟分解}
+% \label{fig:latency}
+% \end{figure}
 
-\subsection{结果分析}
+\subsubsection{结果分析}
 
-\subsubsection{单线程已接近带宽上限}
+\subsubsection*{单线程已接近带宽上限}
 
-在 186.8ms RTT 的链路上，单线程吞吐量稳定在 $\sim$70 Mbps。假设链路物理带宽为 100 Mbps，则带宽利用率为：
-
-\begin{equation}
-\eta = \frac{67.4\text{ Mbps}}{\text{链路带宽}} \times 100\%
-\end{equation}
+在 186.8ms RTT 的链路上，单线程吞吐量稳定在 $\sim$70 Mbps，基本到达信道的带宽上限。
 
 BBR 算法有效地探测并维持了瓶颈链路的可用带宽，避免了传统的 CUBIC 算法在高 RTT 场景下需要长时间慢启动填满窗口的问题。
 
-\subsubsection{多线程加速效果分析}
+\subsubsection*{多线程加速效果分析}
 
 多线程并未带来显著的吞吐量提升，甚至微降（4 线程 500MB 从 67.4 降至 63.0 Mbps）。原因分析：
 
 \begin{enumerate}
     \item \textbf{链路带宽瓶颈}：物理链路已饱和，增加 TCP 连接只会引入更多竞争和上下文切换开销
     \item \textbf{公平性}：TCP 拥塞控制保证多流公平共享瓶颈链路，N 条连接各分得 $\sim 1/N$ 带宽
-    \item \textbf{连接开销}：每条连接的 TCP 握手（1.5 RTT $\approx$ 280ms）和 TLS-like 加密协商成为额外延迟
+    \item \textbf{连接开销}：每条连接的 TCP 握手（1.5 RTT $\approx$ 280ms）、线程调度和分片加解密处理会带来额外延迟
     \item \textbf{适用场景}：多线程在\textbf{高 BDP 网络}（如 1Gbps 链路 + 高 RTT）中效果显著——此时单连接 TCP 窗口无法填满带宽，多连接可聚合窗口
 \end{enumerate}
 
@@ -1247,6 +1317,37 @@ BBR 在本测试中的核心贡献不是更高的峰值吞吐，而是\textbf{�
     \item BBR 基于带宽和 RTT 的模型估计，不受随机丢包影响，10 MB $\rightarrow$ 100 MB 吞吐从 45 升至 72 Mbps（大文件窗口充分打开后稳定）
 \end{itemize}
 
+\subsection{加密结果}
+
+为验证 AES-256-GCM 加密的有效性，使用 \texttt{tcpdump} 对本地信令通道（端口 8889）进行抓包分析。
+
+\textbf{加密前}（未协商 ECDH 密钥或密钥尚未建立时）：
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{res1.jpeg}
+\caption{tcpdump 抓包：明文传输阶段，可读取 JSON 内容（public\_key、DEVICE\_HELLO\_ACK）}
+\label{fig:plain}
+\end{figure}
+
+图 \ref{fig:plain} 显示，密钥协商完成前的通信内容以明文形式出现在 TCP payload 中，通过十六进制转储可直接识别出 JSON 字段（如 \texttt{public\_key}、\texttt{type}、\texttt{DEVICE\_HELLO\_ACK}），存在信息泄露风险。
+
+\textbf{加密后}（ECDH 密钥协商完成后，同一通道）：
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{res2.jpeg}
+\caption{tcpdump 抓包：加密传输阶段，payload 为不可识别的密文}
+\label{fig:cipher}
+\end{figure}
+
+图 \ref{fig:cipher} 显示，密钥协商完成后，相同的信令通道传输内容变为不可识别的二进制密文。攻击者即使截获数据包，在无法获得 256 位共享密钥的情况下，无法还原原始消息内容。
+
+\textbf{加密覆盖范围}：
+\begin{itemize}
+    \item \textbf{信令通道}（端口 8889）：所有 JSON 消息（DEVICE\_HELLO、TEXT\_MESSAGE、FILE\_REQUEST 等）在 PeerKey 存在时自动启用 AES-256-GCM 加密
+    \item \textbf{数据通道}（端口 8890）：文件分片（Chunk）在传输前加密，每个分片独立使用随机 IV 和 GCM Tag
+    \item \textbf{密钥生命周期}：共享密钥缓存在内存中，进程退出即销毁，不持久化到磁盘
+\end{itemize}
+
 \subsection{加密开销分析}
 
 AES-256-GCM 每 chunk（64KB）引入 28 字节开销：
@@ -1259,24 +1360,24 @@ AES-256-GCM 每 chunk（64KB）引入 28 字节开销：
 
 CPU 加密开销：AES-NI 硬件指令加速下，GCM 加解密吞吐可达 GB/s 级别，对 $\sim$70 Mbps 的链路不会成为瓶颈。
 
-\subsection{协议开销}
+% \subsection{协议开销}
 
-\begin{table}[H]
-\centering
-\caption{协议开销汇总}
-\begin{tabular}{lcc}
-\toprule
-\textbf{项目} & \textbf{开销 (字节)} & \textbf{占比 (64KB chunk)} \\
-\midrule
-Chunk 头部 & 16 + 36 (file\_id) & 0.08\% \\
-GCM IV + Tag & 28 & 0.04\% \\
-JSON 消息头 & $\sim$200 & — \\
-TCP/IP 头 & 40 & 0.06\% \\
-\bottomrule
-\end{tabular}
-\end{table}
+% \begin{table}[H]
+% \centering
+% \caption{协议开销汇总}
+% \begin{tabular}{lcc}
+% \toprule
+% \textbf{项目} & \textbf{开销 (字节)} & \textbf{占比 (64KB chunk)} \\
+% \midrule
+% Chunk 头部 & 16 + 36 (file\_id) & 0.08\% \\
+% GCM IV + Tag & 28 & 0.04\% \\
+% JSON 消息头 & $\sim$200 & — \\
+% TCP/IP 头 & 40 & 0.06\% \\
+% \bottomrule
+% \end{tabular}
+% \end{table}
 
-\newpage
+% \newpage
 
 % ============================================================
 % 五、总结
@@ -1290,7 +1391,7 @@ TCP/IP 头 & 40 & 0.06\% \\
     \item \textbf{AES-256-GCM 认证加密}：所有信令和数据通道消息均经过认证加密保护，12 字节随机 IV + 16 字节 GCM Tag 提供机密性和完整性，开销仅 0.04\%。
     \item \textbf{BBR 拥塞控制}：在每个 TCP 发送套接字上启用 BBR 算法，在高 RTT（186ms）链路上实现稳定吞吐，不受随机丢包影响。
     \item \textbf{多线程并行传输}：将文件按 chunk 均匀分给 $N$ 个线程，通过独立 TCP 连接并行发送，利用 \texttt{pwrite()} POSIX 原子写实现并发磁盘写入。
-    \item \textbf{跨网络验证}：在 10.162.44.132 与 10.162.181.2 之间完成完整的功能和性能测试，500MB 文件单线程吞吐 67.4 Mbps，所有传输文件 MD5 校验通过。
+    \item \textbf{跨网络验证}：在 10.162.44.132 与 10.162.181.2 之间完成完整的功能和性能测试，500MB 文件单线程吞吐 67.4 Mbps，传输内容完整性通过接收端文件校验确认。
 \end{enumerate}
 
 \textbf{改进方向}：
@@ -1300,6 +1401,16 @@ TCP/IP 头 & 40 & 0.06\% \\
     \item 引入 HKDF 密钥派生函数替代直接使用 ECDH 原始字节作为 AES 密钥，提高密钥安全性
     \item 增加断点续传功能的实际集成
     \item 支持 IPv6 和 NAT 穿透（STUN/TURN）
+\end{itemize}
+
+\section{AI辅助介绍}
+
+本项目以下部分由DeepseekV4Pro AI辅助完成：
+\begin{itemize}
+    \item 设备自动发现功能的调试
+    \item 多线程tcp链接与文件分块传输部分代码
+    \item Web前端界面
+    \item 完整的报告内容
 \end{itemize}
 
 \end{document}
