@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>P2P 文件传输</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <h2>设备 <span id="online-count">(0)</span></h2>
+    <ul id="device-list"><li class="empty">扫描中...</li></ul>
+    <div id="manual-add">
+      <input type="text" id="peer-ip" placeholder="输入IP添加设备" />
+      <div><button id="add-peer-btn">添加</button></div>
+    </div>
+  </aside>
+  <section id="main">
+    <div id="chat-header">选择一个设备开始聊天</div>
+    <div id="chat-area"><div class="empty-chat">请从左侧选择设备</div></div>
+    <div id="input-area">
+      <label id="file-btn" title="发送文件">+<input type="file" id="file-input" multiple /></label>
+      <textarea id="msg-input" placeholder="输入消息或选择文件..." rows="1"></textarea>
+      <button id="send-btn" disabled>发送</button>
+    </div>
+  </section>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
